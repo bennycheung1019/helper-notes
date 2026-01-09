@@ -1,0 +1,51 @@
+{
+    "name": "Helper Notes",
+    "short_name": "Helper",
+    "description": "Simple daily expense notes for helpers and families",
+    "id": "/",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "display_override": [
+        "standalone",
+        "window-controls-overlay",
+        "minimal-ui",
+        "browser"
+    ],
+    "background_color": "#FFFFFF",
+    "theme_color": "#0F172A",
+    "lang": "zh-HK",
+    "dir": "ltr",
+    "orientation": "portrait",
+    "categories": [
+        "finance",
+        "productivity",
+        "utilities"
+    ],
+    "icons": [
+        {
+            "src": "/icons/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/icons/icon-192-maskable.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "/icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/icons/icon-512-maskable.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}
