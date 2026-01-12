@@ -35,6 +35,24 @@
   --link: #2563EB;
   --focus: rgba(37, 99, 235, 0.12);
   --focusBorder: #9DB7FF;
+
+  --paper: #fbf6ee;
+  --paper-2: rgba(251, 246, 238, 0.6);
+
+  --ink: #121212;
+  --muted: rgba(18, 18, 18, 0.58);
+  --muted-2: rgba(18, 18, 18, 0.4);
+
+  --line: rgba(18, 18, 18, 0.1);
+  --shadow: 0 22px 60px rgba(18, 18, 18, 0.08);
+
+  --accent: #c69255;
+  --accent-2: rgba(198, 146, 85, 0.14);
+
+  --brand-green: #2ec4b6;
+  --brand-yellow: #f4c430;
+  --brand-green-dark: #23b0a4;
+  --brand-yellow-dark: #e0b320;
 }
 
 * {
