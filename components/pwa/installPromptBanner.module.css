@@ -1,0 +1,207 @@
+/* InstallPromptBanner.module.css */
+
+.wrap {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    /* ✅ 避開 AppShell bottom nav */
+    z-index: 70;
+    pointer-events: none;
+    display: flex;
+    justify-content: center;
+    padding: 0 12px;
+}
+
+.card {
+    pointer-events: auto;
+    width: min(760px, 100%);
+    border-radius: 22px;
+    border: 1px solid rgba(18, 18, 18, 0.10);
+    box-shadow: 0 26px 70px rgba(18, 18, 18, 0.22);
+    overflow: hidden;
+
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+
+    padding: 14px 14px;
+}
+
+/* ✅ Role colors: employer = green, helper = yellow */
+.wrap[data-role="employer"] .card {
+    background: linear-gradient(180deg,
+            rgba(46, 196, 182, 0.96),
+            rgba(35, 176, 164, 0.96));
+}
+
+.wrap[data-role="helper"] .card {
+    background: linear-gradient(180deg,
+            rgba(244, 196, 48, 0.96),
+            rgba(224, 179, 32, 0.96));
+}
+
+/* Sections */
+.left {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mid {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Icon */
+.icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.95);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.iconMark {
+    font-weight: 1100;
+    font-size: 18px;
+    color: rgba(18, 18, 18, 0.70);
+}
+
+/* Text */
+.title {
+    font-weight: 1100;
+    letter-spacing: -0.2px;
+    font-size: 14px;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.desc {
+    font-weight: 900;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.92);
+    line-height: 1.45;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Actions */
+.actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: nowrap;
+}
+
+.btnPrimary {
+    border: none;
+    border-radius: 999px;
+    padding: 10px 12px;
+    font-weight: 1100;
+    font-size: 13px;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.96);
+    color: rgba(18, 18, 18, 0.86);
+    box-shadow: 0 12px 26px rgba(18, 18, 18, 0.14);
+    white-space: nowrap;
+}
+
+.btnPrimary:hover {
+    filter: brightness(0.97);
+}
+
+.btnSecondary {
+    border-radius: 999px;
+    padding: 10px 12px;
+    font-weight: 1100;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+    white-space: nowrap;
+}
+
+.btnSecondary:hover {
+    background: rgba(255, 255, 255, 0.24);
+}
+
+.btnClose {
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.40);
+    background: rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.92);
+    font-weight: 1100;
+    cursor: pointer;
+}
+
+.btnClose:hover {
+    background: rgba(255, 255, 255, 0.26);
+}
+
+/* Toast */
+.toastWrap {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 10px);
+    left: 0;
+    right: 0;
+    z-index: 90;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+    padding: 0 12px;
+}
+
+.toast {
+    pointer-events: none;
+    border: 1px solid rgba(18, 18, 18, 0.10);
+    background: rgba(255, 255, 255, 0.92);
+    color: rgba(18, 18, 18, 0.86);
+    border-radius: 999px;
+    padding: 10px 14px;
+    font-weight: 1100;
+    box-shadow: 0 18px 46px rgba(18, 18, 18, 0.16);
+}
+
+/* Mobile layout */
+@media (max-width: 520px) {
+    .card {
+        grid-template-columns: auto 1fr;
+        grid-template-rows: auto auto;
+        align-items: start;
+    }
+
+    .right {
+        grid-column: 1 / -1;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .actions {
+        width: 100%;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .desc {
+        white-space: normal;
+    }
+}

@@ -4,6 +4,9 @@ const withPWA = require("next-pwa")({
   dest: "public",
   register: true,
   skipWaiting: true,
+  clientsClaim: true,
+  cleanupOutdatedCaches: true,
+
   disable: process.env.NODE_ENV === "development",
   runtimeCaching: require("next-pwa/cache"),
   fallbacks: {

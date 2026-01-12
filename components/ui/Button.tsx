@@ -2,55 +2,43 @@
 
 import * as React from "react";
 
-export type ButtonTone = "primary" | "outline" | "muted" | "success" | "danger" | "ghost";
+export type ButtonTone = "primary" | "yellow" | "outline" | "ghost";
 
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
     tone?: ButtonTone;
     fullWidth?: boolean;
-
-    /**
-     * ✅ 預設 true：避免 click 冒泡到外層 Card/onClick
-     */
     stopPropagation?: boolean;
 };
 
 function toneStyle(tone: ButtonTone): React.CSSProperties {
     switch (tone) {
-        case "primary":
+        case "primary": // 僱主（綠）
             return {
-                background: "var(--primary)",
-                color: "var(--primaryText)",
+                backgroundColor: "var(--brand-green)",
+                color: "#ffffff",
                 borderColor: "transparent",
-                boxShadow: "0 12px 26px rgba(15, 23, 42, 0.12)",
+                boxShadow: "0 12px 26px rgba(46, 196, 182, 0.28)",
             };
-        case "success":
+
+        case "yellow": // 姐姐（黃）
             return {
-                background: "rgba(16,185,129,0.14)",
-                color: "#065F46",
-                borderColor: "rgba(16,185,129,0.35)",
+                backgroundColor: "var(--brand-yellow)",
+                color: "#1f2937",
+                borderColor: "transparent",
+                boxShadow: "0 12px 26px rgba(244, 196, 48, 0.28)",
             };
-        case "danger":
-            return {
-                background: "rgba(239,68,68,0.14)",
-                color: "#991B1B",
-                borderColor: "rgba(239,68,68,0.35)",
-            };
-        case "muted":
-            return {
-                background: "rgba(15,23,42,0.06)",
-                color: "var(--text)",
-                borderColor: "rgba(15,23,42,0.12)",
-            };
+
         case "ghost":
             return {
-                background: "transparent",
+                backgroundColor: "transparent",
                 color: "var(--text)",
                 borderColor: "transparent",
             };
+
         case "outline":
         default:
             return {
-                background: "white",
+                backgroundColor: "#ffffff",
                 color: "var(--text)",
                 borderColor: "var(--border)",
             };
@@ -70,22 +58,32 @@ const ButtonImpl = React.forwardRef<HTMLButtonElement, ButtonProps>(function But
     },
     ref
 ) {
-    const base: React.CSSProperties = {
+    const baseStyle: React.CSSProperties = {
         display: "inline-flex",
-        justifyContent: "center",
         alignItems: "center",
+        justifyContent: "center",
         gap: 8,
+
         width: fullWidth ? "100%" : "auto",
         padding: "12px 14px",
         borderRadius: "var(--radius)",
-        border: "1px solid var(--border)",
+
+        /* ✅ border 永遠存在 */
+        borderStyle: "solid",
+        borderWidth: 1,
+        borderColor: "var(--border)",
+
         fontWeight: 900,
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.55 : 1,
         lineHeight: 1,
         userSelect: "none",
+
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.55 : 1,
+
         WebkitTapHighlightColor: "transparent",
-        transition: "transform 120ms ease, box-shadow 120ms ease, filter 120ms ease, opacity 120ms ease",
+        transition:
+            "transform 120ms ease, box-shadow 120ms ease, filter 120ms ease, opacity 120ms ease",
+
         ...toneStyle(tone),
         ...style,
     };
@@ -102,7 +100,7 @@ const ButtonImpl = React.forwardRef<HTMLButtonElement, ButtonProps>(function But
             {...rest}
             disabled={disabled}
             onClick={handleClick}
-            style={base}
+            style={baseStyle}
         >
             {children}
         </button>

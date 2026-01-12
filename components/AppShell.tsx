@@ -2,24 +2,14 @@
 
 import { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import InstallPromptBanner from "@/components/pwa/InstallPromptBanner";
 
 export type Role = "helper" | "employer";
 
 type Props = {
     role: Role;
     children: ReactNode;
-
-    /**
-     * Optional page title.
-     * We accept it to avoid TS errors, but we DO NOT render any header by default
-     * (so your UI stays exactly the same).
-     */
     title?: string;
-
-    /**
-     * Future use: if you ever want AppShell to render a top header.
-     * Default false, so current UI stays unchanged.
-     */
     showHeader?: boolean;
 };
 
@@ -32,13 +22,13 @@ export function AppShell({ role, children /* title, showHeader */ }: Props) {
             ? [
                 { key: "add", label: "新增", href: "/h/add" },
                 { key: "records", label: "記錄", href: "/h/records" },
-                { key: "settings", label: "設定", href: "/h/settings" }, // ✅ 加呢行
+                { key: "settings", label: "設定", href: "/h/settings" },
             ]
             : [
                 { key: "overview", label: "總覽", href: "/e/overview" },
                 { key: "records", label: "記錄", href: "/e/records" },
                 { key: "helpers", label: "姐姐", href: "/e/helpers" },
-                { key: "settings", label: "設定", href: "/e/settings" }, // 之後做
+                { key: "settings", label: "設定", href: "/e/settings" },
             ];
 
     const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
@@ -46,6 +36,9 @@ export function AppShell({ role, children /* title, showHeader */ }: Props) {
     return (
         <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", background: "var(--bg)" }}>
             <div style={{ flex: 1, paddingBottom: "calc(76px + env(safe-area-inset-bottom))" }}>{children}</div>
+
+            {/* ✅ PWA Install banner (role-aware) */}
+            <InstallPromptBanner role={role} />
 
             <nav
                 style={{
@@ -99,3 +92,5 @@ export function AppShell({ role, children /* title, showHeader */ }: Props) {
         </div>
     );
 }
+
+export default AppShell;

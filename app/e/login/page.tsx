@@ -1,17 +1,39 @@
 "use client";
 
-import { useState } from "react";
-import { sendSignInLinkToEmail } from "firebase/auth";
+import { useEffect, useState } from "react";
+import {
+    GoogleAuthProvider,
+    browserLocalPersistence,
+    setPersistence,
+    signInWithPopup,
+    signInWithRedirect,
+    sendSignInLinkToEmail,
+} from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { useRouter } from "next/navigation";
+
+import AuthLayout from "@/components/auth/AuthLayout";
+import Button from "@/components/ui/Button";
+import GoogleButton from "@/components/auth/GoogleButton";
+import styles from "@/components/auth/auth.module.css";
+
+type Status = "idle" | "sending" | "sent" | "error";
 
 export default function EmployerLoginPage() {
+    const router = useRouter();
+
     const [email, setEmail] = useState("");
-    const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+    const [status, setStatus] = useState<Status>("idle");
+    const [busyGoogle, setBusyGoogle] = useState(false);
     const [errorMsg, setErrorMsg] = useState("");
+
+    // ✅ 保留登入狀態（手機/桌面）
+    useEffect(() => {
+        setPersistence(auth, browserLocalPersistence).catch(() => { });
+    }, []);
 
     async function onSendLink() {
         setErrorMsg("");
-
         const trimmed = email.trim();
         if (!trimmed) {
             setErrorMsg("請輸入電郵地址");
@@ -22,83 +44,82 @@ export default function EmployerLoginPage() {
 
         try {
             const actionCodeSettings = {
-                // 呢個係 email link 點完之後返嚟你網站嘅頁面
                 url: `${window.location.origin}/e/auth`,
                 handleCodeInApp: true,
             };
 
             await sendSignInLinkToEmail(auth, trimmed, actionCodeSettings);
-
-            // 記低 email（因為點 link 回來時 Firebase 需要）
             window.localStorage.setItem("employerEmailForSignIn", trimmed);
 
             setStatus("sent");
-        } catch (err: any) {
+        } catch (err) {
             console.error(err);
             setStatus("error");
             setErrorMsg("發送失敗，請稍後再試。");
         }
     }
 
-    return (
-        <main style={{ padding: 16, maxWidth: 420, margin: "0 auto" }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700 }}>僱主登入</h1>
-            <p style={{ marginTop: 8, color: "#555" }}>
-                輸入電郵，我哋會寄一條登入連結俾你。
-            </p>
+    async function onGoogleLogin() {
+        setErrorMsg("");
+        setBusyGoogle(true);
 
-            <div style={{ marginTop: 16 }}>
-                <label style={{ display: "block", fontWeight: 600, marginBottom: 6 }}>
-                    電郵地址
-                </label>
+        const provider = new GoogleAuthProvider();
+
+        try {
+            try {
+                await signInWithPopup(auth, provider);
+            } catch {
+                // mobile fallback
+                await signInWithRedirect(auth, provider);
+                return;
+            }
+
+            router.replace("/e/overview");
+        } catch (e) {
+            console.error(e);
+            setErrorMsg("Google 登入失敗，請再試。");
+        } finally {
+            setBusyGoogle(false);
+        }
+    }
+
+    return (
+        <AuthLayout title="僱主登入" subtitle="用電郵連結或 Google 快速登入">
+            {errorMsg ? <div className={styles.error}>{errorMsg}</div> : null}
+
+            {/* Google */}
+            <GoogleButton onClick={onGoogleLogin} disabled={busyGoogle || status === "sending"} />
+
+            <div className={styles.divider}>或</div>
+
+            {/* Email */}
+            <div className={styles.field}>
+                <div className={styles.label}>電郵地址</div>
                 <input
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     inputMode="email"
-                    placeholder="例如：you@example.com"
-                    style={{
-                        width: "100%",
-                        padding: 12,
-                        borderRadius: 10,
-                        border: "1px solid #ddd",
-                        fontSize: 16,
-                    }}
+                    placeholder="you@example.com"
+                    className={styles.input}
+                    disabled={status === "sending" || busyGoogle}
                 />
             </div>
 
-            {errorMsg ? (
-                <p style={{ marginTop: 10, color: "crimson" }}>{errorMsg}</p>
-            ) : null}
-
-            <button
+            <Button
+                tone="primary"
+                fullWidth
                 onClick={onSendLink}
-                disabled={status === "sending"}
-                style={{
-                    marginTop: 14,
-                    width: "100%",
-                    padding: 12,
-                    borderRadius: 12,
-                    border: "none",
-                    fontSize: 16,
-                    fontWeight: 700,
-                    cursor: status === "sending" ? "not-allowed" : "pointer",
-                }}
+                disabled={status === "sending" || busyGoogle}
             >
                 {status === "sending" ? "發送中…" : "發送登入連結"}
-            </button>
+            </Button>
 
             {status === "sent" ? (
-                <div style={{ marginTop: 14, padding: 12, border: "1px solid #e5e5e5", borderRadius: 12 }}>
-                    <p style={{ fontWeight: 700, marginBottom: 6 }}>已寄出 ✅</p>
-                    <p style={{ margin: 0, color: "#555" }}>
-                        請去你嘅電郵收件匣，點擊登入連結完成登入。
-                    </p>
+                <div className={styles.noteBox}>
+                    <div className={styles.noteTitle}>已寄出 ✅</div>
+                    <div className={styles.noteText}>請到你嘅電郵收件匣，點擊登入連結完成登入。</div>
                 </div>
             ) : null}
-
-            <p style={{ marginTop: 18, fontSize: 12, color: "#777" }}>
-                提示：如果搵唔到電郵，記得睇下垃圾郵件。
-            </p>
-        </main>
+        </AuthLayout>
     );
 }

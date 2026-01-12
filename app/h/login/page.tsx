@@ -1,105 +1,81 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import { useEffect, useState } from "react";
+import {
+    GoogleAuthProvider,
+    browserLocalPersistence,
+    setPersistence,
+    signInAnonymously,
+    signInWithPopup,
+    signInWithRedirect,
+} from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { useRouter } from "next/navigation";
 
-/**
- * ✅ 外層只負責 Suspense
- * Next.js 16 要求 useSearchParams 必須喺 Suspense 裡面
- */
+import AuthLayout from "@/components/auth/AuthLayout";
+import Button from "@/components/ui/Button";
+import GoogleButton from "@/components/auth/GoogleButton";
+import styles from "@/components/auth/auth.module.css";
+
 export default function HelperLoginPage() {
-    return (
-        <Suspense fallback={<LoginFallback />}>
-            <LoginInner />
-        </Suspense>
-    );
-}
-
-function LoginFallback() {
-    return (
-        <main style={{ padding: 16, maxWidth: 420, margin: "0 auto" }}>
-            <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>姐姐登入</h1>
-            <p style={{ marginTop: 12, color: "#555", fontWeight: 900 }}>載入中…</p>
-        </main>
-    );
-}
-
-/**
- * ✅ 真正 login 邏輯
- * 你原本嘅 code 幾乎原封不動放喺呢度
- */
-function LoginInner() {
     const router = useRouter();
-    const sp = useSearchParams();
-
-    const nextPath = sp.get("next") || "/h/add";
-
     const [busy, setBusy] = useState(false);
-    const [msg, setMsg] = useState("");
+    const [error, setError] = useState("");
 
+    // ✅ 保留登入狀態（手機 / 桌面）
     useEffect(() => {
-        // 如果已登入，直接跳返 next
-        const unsub = onAuthStateChanged(auth, (user) => {
-            if (user) router.replace(nextPath);
-        });
-        return () => unsub();
-    }, [router, nextPath]);
+        setPersistence(auth, browserLocalPersistence).catch(() => { });
+    }, []);
 
-    async function onLogin() {
+    async function onAnonymousLogin() {
+        setError("");
         setBusy(true);
-        setMsg("");
-
         try {
             await signInAnonymously(auth);
-            router.replace(nextPath);
-        } catch (e: any) {
-            console.error(e);
-
-            // Firebase Anonymous 未開
-            if (String(e?.code || "").includes("operation-not-allowed")) {
-                setMsg("未開啟匿名登入（Anonymous）。請到 Firebase Authentication 啟用。");
-            } else {
-                setMsg("登入失敗，請再試。");
-            }
+            router.replace("/h/add");
+        } catch {
+            setError("登入失敗，請再試一次");
         } finally {
             setBusy(false);
         }
     }
 
+    async function onGoogleLogin() {
+        setError("");
+        const provider = new GoogleAuthProvider();
+
+        try {
+            try {
+                await signInWithPopup(auth, provider);
+            } catch {
+                // mobile fallback
+                await signInWithRedirect(auth, provider);
+                return;
+            }
+            router.replace("/h/add");
+        } catch {
+            setError("Google 登入失敗，請再試");
+        }
+    }
+
     return (
-        <main style={{ padding: 16, maxWidth: 420, margin: "0 auto" }}>
-            <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>姐姐登入</h1>
+        <AuthLayout title="姐姐登入" subtitle="登入後再用邀請連結完成加入">
+            {error && <div className={styles.error}>{error}</div>}
 
-            <p style={{ marginTop: 10, color: "#555" }}>
-                用邀請連結加入前，需要先登入一次（MVP：免電話 / 免 Email）。
-            </p>
-
-            <button
-                onClick={onLogin}
+            {/* Primary */}
+            <Button
+                tone="yellow"
+                fullWidth
                 disabled={busy}
-                style={{
-                    marginTop: 10,
-                    width: "100%",
-                    padding: 12,
-                    borderRadius: 12,
-                    border: "none",
-                    fontSize: 16,
-                    fontWeight: 900,
-                    cursor: busy ? "not-allowed" : "pointer",
-                    background: "#111",
-                    color: "white",
-                }}
+                onClick={onAnonymousLogin}
             >
-                {busy ? "登入中…" : "一鍵登入（匿名）"}
-            </button>
+                一鍵登入
+            </Button>
 
-            {msg ? <p style={{ marginTop: 12, color: "crimson" }}>{msg}</p> : null}
+            <div className={styles.divider}>或</div>
 
-            <p style={{ marginTop: 14, fontSize: 12, color: "#777" }}>
-                登入後會自動返回：<b>{nextPath}</b>
-            </p>
-        </main>
+            {/* Google */}
+            <GoogleButton onClick={onGoogleLogin} disabled={busy} />
+        </AuthLayout>
     );
 }
