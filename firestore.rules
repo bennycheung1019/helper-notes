@@ -1,0 +1,195 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    function memberDoc(hid) {
+      return /databases/$(database)/documents/households/$(hid)/members/$(request.auth.uid);
+    }
+
+    function isMember(hid) { return signedIn() && exists(memberDoc(hid)); }
+
+    function isEmployer(hid) { return isMember(hid) && get(memberDoc(hid)).data.role == "employer"; }
+
+    function isHelper(hid) { return isMember(hid) && get(memberDoc(hid)).data.role == "helper"; }
+
+    function onlyChanges(allowedKeys) {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(allowedKeys);
+    }
+
+    function isHouseholdCreator(hid) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/households/$(hid))
+        && get(/databases/$(database)/documents/households/$(hid)).data.createdByUserId == request.auth.uid;
+    }
+
+    function inviteRef(token) {
+      return /databases/$(database)/documents/invites/$(token);
+    }
+
+    function inviteAfterData(token) {
+      return getAfter(inviteRef(token)).data;
+    }
+
+    // ✅ invite 有效性檢查（必須已經被 joiner 標記 used）
+    function isValidUsedInviteForJoin(hid, role) {
+      return signedIn()
+        && request.resource.data.inviteToken is string
+        && existsAfter(inviteRef(request.resource.data.inviteToken))
+        && inviteAfterData(request.resource.data.inviteToken).householdId == hid
+        && inviteAfterData(request.resource.data.inviteToken).roleToJoin == role
+        && inviteAfterData(request.resource.data.inviteToken).revokedAt == null
+        && inviteAfterData(request.resource.data.inviteToken).usedByUserId == request.auth.uid
+        && inviteAfterData(request.resource.data.inviteToken).usedAt != null
+        && (
+          inviteAfterData(request.resource.data.inviteToken).expiresAt == null
+          || request.time < inviteAfterData(request.resource.data.inviteToken).expiresAt
+        );
+    }
+
+    match /users/{uid} {
+      allow read, create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    match /invites/{token} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          "householdId",
+          "roleToJoin",
+          "createdByUserId",
+          "createdAt",
+          "expiresAt",
+          "revokedAt",
+          "usedAt",
+          "usedByUserId"
+        ])
+        && request.resource.data.createdByUserId == request.auth.uid
+        && request.resource.data.roleToJoin in ["helper", "employer"]
+        && isEmployer(request.resource.data.householdId);
+
+      allow read: if signedIn();
+
+      allow update: if signedIn() && (
+        (isEmployer(resource.data.householdId)
+          && resource.data.createdByUserId == request.auth.uid
+          && onlyChanges(["revokedAt"]))
+        ||
+        (resource.data.usedAt == null
+          && resource.data.revokedAt == null
+          && (resource.data.expiresAt == null || request.time < resource.data.expiresAt)
+          && onlyChanges(["usedAt", "usedByUserId"])
+          && request.resource.data.usedByUserId == request.auth.uid
+          && request.resource.data.usedAt != null)
+      );
+
+      allow delete: if false;
+    }
+
+    match /households/{hid} {
+
+      allow read: if isMember(hid) || isHouseholdCreator(hid);
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          "name",
+          "currency",
+          "createdAt",
+          "createdByUserId"
+        ])
+        && request.resource.data.currency == "HKD"
+        && request.resource.data.createdByUserId == request.auth.uid;
+
+      allow update: if isEmployer(hid)
+        || (
+          isHelper(hid)
+          && onlyChanges(["cashCents", "cashUpdatedAt"])
+          && request.resource.data.cashCents is int
+          && request.resource.data.cashCents <= resource.data.cashCents
+        );
+
+      allow delete: if false;
+
+      match /members/{memberUid} {
+        allow read: if isMember(hid) || isHouseholdCreator(hid);
+
+        // ✅ Create member:
+        // A) employer adds members
+        // B) creator bootstrap adds SELF as employer
+        // C) joiner (SELF) joins using a USED inviteToken (after marking invite used)
+        allow create: if signedIn()
+          && (
+            // (A) employer adds members
+            (isEmployer(hid)
+              && request.resource.data.keys().hasOnly(["role", "createdAt", "label"])
+              && request.resource.data.role in ["helper", "employer"]
+            )
+            ||
+            // (B) bootstrap: creator adds SELF as employer
+            (memberUid == request.auth.uid
+              && request.resource.data.keys().hasOnly(["role", "createdAt", "label"])
+              && request.resource.data.role == "employer"
+              && isHouseholdCreator(hid)
+            )
+            ||
+            // (C) joiner: SELF joins with inviteToken (invite must already be marked used by this user)
+            (memberUid == request.auth.uid
+              && request.resource.data.keys().hasOnly(["role", "createdAt", "label", "inviteToken"])
+              && request.resource.data.role in ["helper", "employer"]
+              && isValidUsedInviteForJoin(hid, request.resource.data.role)
+            )
+          );
+
+        allow update: if isEmployer(hid) && onlyChanges(["label"]);
+        allow delete: if false;
+      }
+
+      match /records/{rid} {
+        allow read: if isMember(hid);
+
+        allow create: if signedIn()
+          && isMember(hid)
+          && request.resource.data.keys().hasOnly([
+            "amountCents",
+            "category",
+            "note",
+            "status",
+            "createdAt",
+            "createdByUserId",
+            "createdByLabel",
+            "receiptImages"
+          ])
+          && request.resource.data.amountCents is int
+          && request.resource.data.amountCents > 0
+          && request.resource.data.status == "submitted"
+          && request.resource.data.createdByUserId == request.auth.uid
+          && (isHelper(hid) || isEmployer(hid));
+
+        allow update: if signedIn() && (
+          isEmployer(hid)
+          ||
+          (
+            isHelper(hid)
+            && resource.data.createdByUserId == request.auth.uid
+            && resource.data.status == "submitted"
+            && request.resource.data.status == "submitted"
+            && onlyChanges([
+              "amountCents",
+              "category",
+              "note",
+              "receiptImages",
+              "updatedAt",
+              "updatedByUserId"
+            ])
+            && request.resource.data.amountCents is int
+            && request.resource.data.amountCents > 0
+            && (request.resource.data.updatedByUserId == request.auth.uid || request.resource.data.updatedByUserId == null)
+          )
+        );
+
+        allow delete: if false;
+      }
+    }
+  }
+}

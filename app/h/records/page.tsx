@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import { syncAuthUid } from "@/lib/localAuth";
 import { useRouter } from "next/navigation";
 import {
     collection,
@@ -80,6 +81,7 @@ export default function HelperRecordsPage() {
                 router.replace("/h/login");
                 return;
             }
+            syncAuthUid(user.uid);
             setUid(user.uid);
 
             const hid = window.localStorage.getItem("helperHouseholdId");

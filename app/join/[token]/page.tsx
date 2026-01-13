@@ -4,13 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import {
-    doc,
-    getDoc,
-    serverTimestamp,
-    setDoc,
-    updateDoc,
-} from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 
 type InviteDoc = {
     householdId: string;
@@ -35,14 +29,17 @@ export default function JoinByTokenPage({
     const [busy, setBusy] = useState(false);
 
     useEffect(() => {
+        // ✅ 記低 token，避免用戶要貼第二次
+        try {
+            window.localStorage.setItem("helperJoinToken", token);
+            window.localStorage.setItem("helperJoinNext", `/join/${token}`);
+        } catch { }
+
         const unsub = onAuthStateChanged(auth, async (user) => {
             if (!user) {
-                // ✅ 未登入就去 helper login，登入後回來 join
                 router.replace(`/h/login?next=${encodeURIComponent(`/join/${token}`)}`);
                 return;
             }
-
-            // 已登入 → 執行 join
             await doJoin(user.uid);
         });
 
@@ -53,10 +50,10 @@ export default function JoinByTokenPage({
     async function doJoin(uid: string) {
         if (busy) return;
         setBusy(true);
-        setMsg("驗證邀請連結…");
 
         try {
-            // 1) 讀 invite
+            setMsg("驗證邀請連結…");
+
             const inviteRef = doc(db, "invites", token);
             const inviteSnap = await getDoc(inviteRef);
 
@@ -71,58 +68,68 @@ export default function JoinByTokenPage({
                 setMsg("呢條邀請連結已被取消。");
                 return;
             }
-
             if (inv.usedAt) {
                 setMsg("呢條邀請連結已用過（一次性）。請叫僱主再生成一條。");
                 return;
             }
-
-            if (inv.expiresAt && inv.expiresAt.toDate && new Date() > inv.expiresAt.toDate()) {
+            if (inv.expiresAt?.toDate && new Date() > inv.expiresAt.toDate()) {
                 setMsg("呢條邀請連結已過期。請叫僱主再生成一條。");
                 return;
             }
 
             const hid = inv.householdId;
-            const role = inv.roleToJoin || "helper";
+            const role = (inv.roleToJoin || "helper") as "helper" | "employer";
 
             setMsg("加入家庭中…");
 
-            // 2) 建立 members doc（✅ 符合你 rules：只有 role / createdAt / label）
-            const memberRef = doc(db, "households", hid, "members", uid);
+            // ✅ 一次 batch commit（members + invite usedAt）
+            // ✅ members 必須帶 inviteToken，先符合 rules.validInviteForJoin()
+            const batch = writeBatch(db);
 
-            await setDoc(
+            const memberRef = doc(db, "households", hid, "members", uid);
+            batch.set(
                 memberRef,
                 {
                     role,
-                    createdAt: serverTimestamp(),
                     label: role === "helper" ? "姐姐" : "僱主",
+                    inviteToken: token, // ✅ 關鍵：一定要有
+                    createdAt: serverTimestamp(),
                 },
-                { merge: true } // 安全：如果重覆 join 不會爆（但 invite 一次性）
+                { merge: false } // ✅ create-only，避免變 update
             );
 
-            // 3) ✅ 更新 invite (一定要 updateDoc，只改兩個 field)
-            await updateDoc(inviteRef, {
+            batch.update(inviteRef, {
                 usedAt: serverTimestamp(),
                 usedByUserId: uid,
             });
 
-            // 4) localStorage 綁定家庭（不同 browser/incognito 都要靠 join 再寫一次）
+            await batch.commit();
+
+            // ✅ 綁定 household（helper 之後 /h/add 用到）
             if (role === "helper") {
                 window.localStorage.setItem("helperHouseholdId", hid);
+                cleanupJoinCache();
                 setMsg("加入成功 ✅ 轉到新增頁…");
                 router.replace("/h/add");
             } else {
-                // 如果你將來支持 employer join
                 window.localStorage.setItem("defaultHouseholdId", hid);
+                cleanupJoinCache();
                 setMsg("加入成功 ✅ 轉到總覽…");
                 router.replace("/e/overview");
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
-            setMsg("加入失敗（可能係 rules / invite 已被用）。");
+            setMsg(`加入失敗（${e?.code || "unknown"}）：多數係 rules / invite 已被用 / 欄位唔符合`);
         } finally {
             setBusy(false);
         }
+    }
+
+    function cleanupJoinCache() {
+        try {
+            window.localStorage.removeItem("helperJoinToken");
+            window.localStorage.removeItem("helperJoinNext");
+        } catch { }
     }
 
     return (
@@ -136,9 +143,12 @@ export default function JoinByTokenPage({
                     boxShadow: "0 10px 30px rgba(15,23,42,0.06)",
                 }}
             >
-                <div style={{ fontWeight: 950, fontSize: 16, color: "var(--text)" }}>加入家庭</div>
-                <div style={{ marginTop: 8, color: "var(--muted)", fontWeight: 800 }}>{msg}</div>
-
+                <div style={{ fontWeight: 950, fontSize: 16, color: "var(--text)" }}>
+                    加入家庭
+                </div>
+                <div style={{ marginTop: 8, color: "var(--muted)", fontWeight: 800 }}>
+                    {msg}
+                </div>
                 <div style={{ marginTop: 12, fontSize: 12, color: "var(--muted)" }}>
                     Token：{token.slice(0, 8)}…
                 </div>

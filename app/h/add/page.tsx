@@ -2,10 +2,17 @@
 
 import { AppShell } from "@/components/AppShell";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
-import { addDoc, collection, doc, getDoc, serverTimestamp } from "firebase/firestore";
+import { syncAuthUid } from "@/lib/localAuth";
+import {
+    collection,
+    doc,
+    getDoc,
+    serverTimestamp,
+    runTransaction,
+} from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 type ReceiptImage = {
@@ -45,7 +52,9 @@ function Pill({
                 cursor: "pointer",
                 fontSize: 13,
                 lineHeight: 1,
-                boxShadow: active ? "0 10px 24px rgba(15, 23, 42, 0.18)" : "0 2px 8px rgba(15, 23, 42, 0.06)",
+                boxShadow: active
+                    ? "0 10px 24px rgba(15, 23, 42, 0.18)"
+                    : "0 2px 8px rgba(15, 23, 42, 0.06)",
             }}
             type="button"
         >
@@ -57,7 +66,6 @@ function Pill({
 function Toast({
     text,
     tone = "success",
-    onClose,
 }: {
     text: string;
     tone?: "success" | "error";
@@ -75,7 +83,7 @@ function Toast({
                 zIndex: 60,
                 display: "flex",
                 justifyContent: "center",
-                pointerEvents: "none", // 純提示，不可點
+                pointerEvents: "none",
             }}
         >
             <div
@@ -98,8 +106,15 @@ function Toast({
     );
 }
 
+function parseJoinTokenFromPath(path: string) {
+    // support "/join/<token>"
+    const m = String(path || "").match(/^\/join\/([^/?#]+)/);
+    return m?.[1] || null;
+}
+
 export default function HelperAddPage() {
     const router = useRouter();
+    const sp = useSearchParams();
 
     const [householdId, setHouseholdId] = useState<string | null>(null);
 
@@ -113,7 +128,7 @@ export default function HelperAddPage() {
     const [uploading, setUploading] = useState(false);
     const [busy, setBusy] = useState(false);
 
-    // helper label (from members doc)
+    // helper label
     const [helperLabel, setHelperLabel] = useState<string>("姐姐");
 
     // toast
@@ -121,7 +136,10 @@ export default function HelperAddPage() {
     const toastTimerRef = useRef<number | null>(null);
 
     const amountCents = useMemo(() => centsFromHKDString(amountStr), [amountStr]);
-    const amountHKDPreview = useMemo(() => (amountCents > 0 ? hkdFromCents(amountCents) : "0.00"), [amountCents]);
+    const amountHKDPreview = useMemo(
+        () => (amountCents > 0 ? hkdFromCents(amountCents) : "0.00"),
+        [amountCents]
+    );
 
     const categories = useMemo(() => ["買餸", "日用品", "交通", "其他"], []);
 
@@ -137,6 +155,16 @@ export default function HelperAddPage() {
         };
     }, []);
 
+    // ✅ fallback: 如果有 token query，就直接帶去 join
+    useEffect(() => {
+        const t = sp.get("token");
+        if (t) {
+            window.localStorage.setItem("helperJoinToken", t);
+            router.replace(`/join/${t}`);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sp]);
+
     // auth + household
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, async (user) => {
@@ -145,12 +173,29 @@ export default function HelperAddPage() {
                 return;
             }
 
+            syncAuthUid(user.uid);
+
+            // ✅ 正常：從 localStorage 拿 householdId
             const hid = window.localStorage.getItem("helperHouseholdId");
             if (!hid) {
+                // ✅ 保險：如果之前係 join flow，但登入後落咗 /h/add，就自動帶返去 /join/<token>
+                const token = window.localStorage.getItem("helperJoinToken");
+                const nextPath = window.localStorage.getItem("helperJoinNext"); // e.g. "/join/<token>"
+
+                const tokenFromNext = nextPath ? parseJoinTokenFromPath(nextPath) : null;
+                const finalToken = tokenFromNext || token || null;
+
+                if (finalToken) {
+                    showToast("完成登入，正幫你加入家庭…", "success");
+                    router.replace(`/join/${finalToken}`);
+                    return;
+                }
+
                 setHouseholdId(null);
                 showToast("未綁定家庭：請用僱主邀請連結加入一次", "error");
                 return;
             }
+
             setHouseholdId(hid);
 
             try {
@@ -175,7 +220,7 @@ export default function HelperAddPage() {
             const uid = auth.currentUser.uid;
             const now = Date.now();
 
-            const picked = Array.from(files).slice(0, 8); // 一次最多 8 張
+            const picked = Array.from(files).slice(0, 8);
             const uploaded: ReceiptImage[] = [];
 
             for (const f of picked) {
@@ -214,7 +259,6 @@ export default function HelperAddPage() {
                 await deleteObject(storageRef(storage, img.path));
             }
         } catch (e) {
-            // ignore
             console.warn("deleteObject failed", e);
         }
     }
@@ -228,6 +272,7 @@ export default function HelperAddPage() {
         }
 
         setBusy(true);
+
         try {
             const uid = auth.currentUser.uid;
 
@@ -238,33 +283,48 @@ export default function HelperAddPage() {
                 label = msnap.exists() ? ((msnap.data() as any)?.label || "姐姐") : "姐姐";
             } catch { }
 
-            await addDoc(collection(db, "households", householdId, "records"), {
-                amountCents,
-                category: (category || "其他").trim() || "其他",
-                note: (note || "").trim(),
-                status: "submitted",
-                createdAt: serverTimestamp(),
+            const householdRef = doc(db, "households", householdId);
+            const recordRef = doc(collection(db, "households", householdId, "records"));
 
-                createdByUserId: uid,
-                createdByLabel: String(label || "姐姐"),
+            const nextCashCents = await runTransaction(db, async (tx) => {
+                const hsnap = await tx.get(householdRef);
+                const hdata = hsnap.exists() ? (hsnap.data() as any) : null;
 
-                receiptImages: images.map((x) => ({
-                    url: x.url,
-                    path: x.path || null,
-                    uploadedAtMs: x.uploadedAtMs || Date.now(),
-                })),
+                const currentCashCents = Number(hdata?.cashCents ?? 0) || 0;
+                const updatedCashCents = currentCashCents - amountCents;
+
+                tx.set(recordRef, {
+                    amountCents,
+                    category: (category || "其他").trim() || "其他",
+                    note: (note || "").trim(),
+                    status: "submitted",
+                    createdAt: serverTimestamp(),
+                    createdByUserId: uid,
+                    createdByLabel: String(label || "姐姐"),
+                    receiptImages: images.map((x) => ({
+                        url: x.url,
+                        path: x.path || null,
+                        uploadedAtMs: x.uploadedAtMs || Date.now(),
+                    })),
+                });
+
+                tx.update(householdRef, {
+                    cashCents: updatedCashCents,
+                    cashUpdatedAt: serverTimestamp(),
+                });
+
+                return updatedCashCents;
             });
 
-            // reset
             setAmountStr("");
             setCategory("買餸");
             setNote("");
             setImages([]);
 
-            showToast("已提交 ✅", "success");
+            showToast(`已提交 ✅（手上現金：HK$ ${hkdFromCents(nextCashCents)}）`, "success");
         } catch (e) {
             console.error(e);
-            showToast("提交失敗（可能係 Firestore rules）", "error");
+            showToast("提交失敗（可能係 Firestore rules / 權限）", "error");
         } finally {
             setBusy(false);
         }
@@ -273,7 +333,6 @@ export default function HelperAddPage() {
     return (
         <AppShell role="helper">
             <main style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
-                {/* Header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
                     <div>
                         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950, color: "var(--text)" }}>新增</h1>
@@ -283,7 +342,6 @@ export default function HelperAddPage() {
                     </div>
                 </div>
 
-                {/* Main card */}
                 <div
                     style={{
                         marginTop: 12,
@@ -294,11 +352,18 @@ export default function HelperAddPage() {
                         boxShadow: "0 12px 28px rgba(15, 23, 42, 0.10)",
                     }}
                 >
-                    {/* Amount */}
                     <div>
                         <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>金額（HK$）</div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center", marginTop: 8 }}>
+                        <div
+                            style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr auto",
+                                gap: 12,
+                                alignItems: "center",
+                                marginTop: 8,
+                            }}
+                        >
                             <input
                                 inputMode="decimal"
                                 placeholder="例如 125.50"
@@ -318,12 +383,13 @@ export default function HelperAddPage() {
 
                             <div style={{ minWidth: 110, textAlign: "right" }}>
                                 <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 900 }}>預覽</div>
-                                <div style={{ fontSize: 20, fontWeight: 950, color: "var(--text)" }}>HK$ {amountHKDPreview}</div>
+                                <div style={{ fontSize: 20, fontWeight: 950, color: "var(--text)" }}>
+                                    HK$ {amountHKDPreview}
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Category pills */}
                     <div style={{ marginTop: 14 }}>
                         <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>分類</div>
                         <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -335,7 +401,6 @@ export default function HelperAddPage() {
                         </div>
                     </div>
 
-                    {/* Note */}
                     <div style={{ marginTop: 14 }}>
                         <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>備註（可選）</div>
                         <textarea
@@ -358,7 +423,6 @@ export default function HelperAddPage() {
                         />
                     </div>
 
-                    {/* Upload */}
                     <div style={{ marginTop: 14 }}>
                         <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>收據相片（可選）</div>
 
@@ -403,7 +467,11 @@ export default function HelperAddPage() {
                                         }}
                                     >
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={img.url} alt="receipt" style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
+                                        <img
+                                            src={img.url}
+                                            alt="receipt"
+                                            style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }}
+                                        />
 
                                         <button
                                             onClick={() => removeImage(idx)}
@@ -431,7 +499,6 @@ export default function HelperAddPage() {
                         ) : null}
                     </div>
 
-                    {/* Submit */}
                     <button
                         onClick={submit}
                         disabled={busy || uploading || !householdId}

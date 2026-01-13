@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import { syncAuthUid } from "@/lib/localAuth";
 import { useRouter } from "next/navigation";
 import {
     collection,
@@ -15,7 +16,6 @@ import {
     serverTimestamp,
     updateDoc,
     where,
-    deleteDoc,
 } from "firebase/firestore";
 
 import Button from "@/components/ui/Button";
@@ -45,7 +45,7 @@ export default function EmployerHelpersPage() {
     // list actions
     const [editingUid, setEditingUid] = useState<string | null>(null);
     const [draftLabel, setDraftLabel] = useState<string>("");
-    const [busyUid, setBusyUid] = useState<string | null>(null); // for save/delete
+    const [busyUid, setBusyUid] = useState<string | null>(null); // for save/remove
 
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, async (user) => {
@@ -55,6 +55,8 @@ export default function EmployerHelpersPage() {
                 router.replace("/e/login");
                 return;
             }
+
+            syncAuthUid(user.uid);
 
             try {
                 const usnap = await getDoc(doc(db, "users", user.uid));
@@ -81,19 +83,30 @@ export default function EmployerHelpersPage() {
     async function loadHelpers(hid: string) {
         setMsg("");
         try {
-            const qh = query(collection(db, "households", hid, "members"), where("role", "==", "helper"));
+            const qh = query(
+                collection(db, "households", hid, "members"),
+                where("role", "==", "helper")
+            );
+
             const snap = await getDocs(qh);
 
-            const list = snap.docs.map((d) => {
-                const data = d.data() as any;
-                return { uid: d.id, label: String(data?.label || "姐姐") };
-            });
+            const list = snap.docs
+                .map((d) => {
+                    const data = d.data() as any;
+                    return {
+                        uid: d.id,
+                        label: String(data?.label || "姐姐"),
+                        disabledAt: data?.disabledAt ?? null, // ✅ 不存在當 null
+                    };
+                })
+                .filter((x) => !x.disabledAt) // ✅ client-side 排走已移除
+                .map((x) => ({ uid: x.uid, label: x.label }));
 
             list.sort((a, b) => a.label.localeCompare(b.label) || a.uid.localeCompare(b.uid));
             setRows(list);
         } catch (e) {
             console.error(e);
-            setMsg("讀取失敗（可能係 rules）。");
+            setMsg("讀取失敗（可能係 rules / index）。");
         }
     }
 
@@ -196,8 +209,9 @@ export default function EmployerHelpersPage() {
         }
     }
 
-    async function deleteHelper(uid: string) {
-        if (!householdId) return;
+    // ✅ Soft remove: set disabledAt/disabledByUserId
+    async function removeHelper(uid: string) {
+        if (!householdId || !auth.currentUser) return;
 
         const r = rows.find((x) => x.uid === uid);
         const name = r?.label?.trim() || "姐姐";
@@ -209,14 +223,17 @@ export default function EmployerHelpersPage() {
         setMsg("");
 
         try {
-            await deleteDoc(doc(db, "households", householdId, "members", uid));
+            await updateDoc(doc(db, "households", householdId, "members", uid), {
+                disabledAt: serverTimestamp(),
+                disabledByUserId: auth.currentUser.uid,
+            });
 
-            // refresh list
+            // optimistic UI
             setRows((prev) => prev.filter((x) => x.uid !== uid));
             if (editingUid === uid) cancelEdit();
 
-            // if basic, after deleting, allow creating invite again
             setMsg("已移除 ✅");
+            setInviteUrl(""); // optional：移除後方便再生成
         } catch (e) {
             console.error(e);
             setMsg("移除失敗（可能係 rules）。");
@@ -238,7 +255,7 @@ export default function EmployerHelpersPage() {
     return (
         <AppShell role="employer" title="姐姐">
             <main style={{ padding: 16, maxWidth: 860, margin: "0 auto" }}>
-                {/* Top (simple) */}
+                {/* Top */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
                     <div>
                         <div style={{ fontSize: 18, fontWeight: 950, color: "var(--text)" }}>姐姐管理</div>
@@ -341,7 +358,7 @@ export default function EmployerHelpersPage() {
                     <div style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
                         <div style={{ fontWeight: 950, color: "var(--text)" }}>現有姐姐</div>
                         <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>
-                            用「編輯」可以改名；用「刪除」可以移除姐姐。
+                            用「編輯」可以改名；用「移除」可以停用姐姐。
                         </div>
                     </div>
 
@@ -402,39 +419,19 @@ export default function EmployerHelpersPage() {
                                             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                                                 {!isEditing ? (
                                                     <>
-                                                        <Button
-                                                            tone="outline"
-                                                            fullWidth={false}
-                                                            onClick={() => startEdit(r)}
-                                                            disabled={busy || busyInvite}
-                                                        >
+                                                        <Button tone="outline" fullWidth={false} onClick={() => startEdit(r)} disabled={busy || busyInvite}>
                                                             編輯
                                                         </Button>
-                                                        <Button
-                                                            tone="danger"
-                                                            fullWidth={false}
-                                                            onClick={() => deleteHelper(r.uid)}
-                                                            disabled={busy || busyInvite}
-                                                        >
-                                                            刪除
+                                                        <Button tone="danger" fullWidth={false} onClick={() => removeHelper(r.uid)} disabled={busy || busyInvite}>
+                                                            {busy ? "移除中…" : "移除"}
                                                         </Button>
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <Button
-                                                            tone="primary"
-                                                            fullWidth={false}
-                                                            onClick={() => saveLabel(r.uid)}
-                                                            disabled={busy}
-                                                        >
+                                                        <Button tone="primary" fullWidth={false} onClick={() => saveLabel(r.uid)} disabled={busy}>
                                                             {busy ? "儲存中…" : "儲存"}
                                                         </Button>
-                                                        <Button
-                                                            tone="outline"
-                                                            fullWidth={false}
-                                                            onClick={cancelEdit}
-                                                            disabled={busy}
-                                                        >
+                                                        <Button tone="outline" fullWidth={false} onClick={cancelEdit} disabled={busy}>
                                                             取消
                                                         </Button>
                                                     </>

@@ -5,6 +5,7 @@ import { AppShell } from "@/components/AppShell";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import { syncAuthUid } from "@/lib/localAuth";
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 
 import Button from "@/components/ui/Button";
@@ -114,6 +115,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                 return;
             }
 
+            syncAuthUid(user.uid);
             try {
                 const usnap = await getDoc(doc(db, "users", user.uid));
                 const u = usnap.exists() ? (usnap.data() as any) : null;

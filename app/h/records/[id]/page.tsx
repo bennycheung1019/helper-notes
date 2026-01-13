@@ -5,7 +5,13 @@ import { AppShell } from "@/components/AppShell";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { syncAuthUid } from "@/lib/localAuth";
+import {
+    doc,
+    getDoc,
+    serverTimestamp,
+    runTransaction,
+} from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 import { consumeReturnTo } from "@/lib/returnTo";
@@ -25,6 +31,8 @@ type RecordDoc = {
     createdByLabel?: string | null;
     receiptImages?: ReceiptImage[];
     createdAt?: any; // Firestore Timestamp
+    updatedAt?: any;
+    updatedByUserId?: string | null;
 };
 
 function centsFromHKDString(s: string) {
@@ -192,10 +200,10 @@ export default function HelperRecordEditPage({ params }: { params: Promise<{ id:
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, async (user) => {
             if (!user) {
-                // ✅ edit page next should point to edit page
                 router.replace(`/h/login?next=${encodeURIComponent(`/h/records/${recordId}/edit`)}`);
                 return;
             }
+            syncAuthUid(user.uid);
             setUid(user.uid);
 
             const hid = window.localStorage.getItem("helperHouseholdId");
@@ -227,7 +235,6 @@ export default function HelperRecordEditPage({ params }: { params: Promise<{ id:
             }
 
             const data = rsnap.data() as RecordDoc;
-
             setOriginal(data);
 
             // fill form
@@ -313,6 +320,21 @@ export default function HelperRecordEditPage({ params }: { params: Promise<{ id:
         }
     }
 
+    /**
+     * ✅ 核心修正：
+     * Save edit 時用 transaction 同步更新：
+     * - records/{rid}.amountCents...
+     * - households/{hid}.cashCents 依照「新-舊」差額調整
+     *
+     * delta = newAmount - oldAmount
+     * nextCash = currentCash - delta
+     *
+     * 例：
+     * old=100, new=120 => delta=+20 => cash 再扣 20
+     * old=120, new=80  => delta=-40 => cash 加返 40
+     *
+     * ⚠️ Firestore rules 必須容許 helper 更新 household.cashCents（可升可跌）
+     */
     async function onSave() {
         if (!householdId || !uid) return;
 
@@ -333,7 +355,10 @@ export default function HelperRecordEditPage({ params }: { params: Promise<{ id:
         setMsg("");
 
         try {
-            await updateDoc(doc(db, "households", householdId, "records", recordId), {
+            const householdRef = doc(db, "households", householdId);
+            const recordRef = doc(db, "households", householdId, "records", recordId);
+
+            const nextPayload = {
                 amountCents,
                 category: (category || "其他").trim() || "其他",
                 note: (note || "").trim(),
@@ -342,20 +367,68 @@ export default function HelperRecordEditPage({ params }: { params: Promise<{ id:
                     path: x.path || null,
                     uploadedAtMs: x.uploadedAtMs || Date.now(),
                 })),
-
-                status: "submitted",
+                status: "submitted" as const,
                 updatedAt: serverTimestamp(),
                 updatedByUserId: uid,
+            };
+
+            await runTransaction(db, async (tx) => {
+                const [rsnap, hsnap] = await Promise.all([tx.get(recordRef), tx.get(householdRef)]);
+                if (!rsnap.exists()) throw new Error("record_not_found");
+                if (!hsnap.exists()) throw new Error("household_not_found");
+
+                const r = rsnap.data() as any;
+                const h = hsnap.data() as any;
+
+                // 跟你現有 canEdit + rules 同步
+                if (r.createdByUserId && r.createdByUserId !== uid) throw new Error("not_owner");
+                if ((r.status || "submitted") !== "submitted") throw new Error("locked");
+
+                const oldAmountCents = Number(r.amountCents || 0) || 0;
+                const currentCashCents = Number(h.cashCents ?? 0) || 0;
+
+                const delta = amountCents - oldAmountCents;
+                const nextCashCents = currentCashCents - delta;
+
+                // 1) update record
+                tx.update(recordRef, nextPayload);
+
+                // 2) update cash
+                tx.update(householdRef, {
+                    cashCents: nextCashCents,
+                    cashUpdatedAt: serverTimestamp(),
+                });
             });
 
-            setToast({ open: true, text: "已儲存 ✅", kind: "success" });
+            // 更新本地 original，避免下一次 save 用舊 oldAmount
+            setOriginal((prev) =>
+                prev
+                    ? {
+                        ...prev,
+                        amountCents,
+                        category: (category || "其他").trim() || "其他",
+                        note: (note || "").trim(),
+                        receiptImages: images,
+                        status: "submitted",
+                        updatedByUserId: uid,
+                    }
+                    : prev
+            );
 
-            // ✅ optional: 如果你想儲存後自動返回上一頁，解除下面註解
-            // window.setTimeout(() => handleBack(), 450);
-        } catch (e) {
+            setToast({ open: true, text: "已儲存 ✅", kind: "success" });
+        } catch (e: any) {
             console.error(e);
             setToast({ open: true, text: "儲存失敗", kind: "error" });
-            setMsg("儲存失敗（可能係 rules）。");
+
+            // 更清楚提示
+            const code = String(e?.code || e?.message || "");
+            if (code.includes("permission") || code.includes("PERMISSION") || code.includes("insufficient")) {
+                setMsg("儲存失敗：權限不足（多數係 rules 未放行 household.cashCents 更新）。");
+            } else if (code.includes("locked")) {
+                setMsg("儲存失敗：記錄已鎖定（唔係待批）。");
+            } else {
+                setMsg("儲存失敗（可能係 rules / 網絡）。");
+            }
         } finally {
             setBusy(false);
         }
@@ -444,7 +517,7 @@ export default function HelperRecordEditPage({ params }: { params: Promise<{ id:
                         </div>
                     </div>
 
-                    {/* ✅ back button top-right */}
+                    {/* back button */}
                     <button
                         type="button"
                         onClick={handleBack}
@@ -468,7 +541,7 @@ export default function HelperRecordEditPage({ params }: { params: Promise<{ id:
                     </button>
                 </div>
 
-                {/* ✅ Record ID (CS) align right + click to copy */}
+                {/* Record ID (click to copy) */}
                 <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
                     <button
                         type="button"
@@ -566,7 +639,7 @@ export default function HelperRecordEditPage({ params }: { params: Promise<{ id:
                                 />
                             </div>
 
-                            {/* Category pills */}
+                            {/* Category */}
                             <div style={{ marginTop: 14 }}>
                                 <div style={{ fontSize: 13, fontWeight: 950, color: "var(--text)" }}>分類</div>
                                 <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>

@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import { syncAuthUid } from "@/lib/localAuth";
 import { useRouter } from "next/navigation";
 import {
     collection,
@@ -216,17 +217,24 @@ export default function EmployerRecordsPage() {
                 return;
             }
 
+            syncAuthUid(user.uid);
             setMsg(null);
 
-            const usnap = await getDoc(doc(db, "users", user.uid));
-            if (usnap.exists()) {
-                const data = usnap.data() as any;
-                const hid = data?.defaultHouseholdId || window.localStorage.getItem("defaultHouseholdId");
-                setHouseholdId(hid || null);
-                setPlan(data?.plan === "pro" ? "pro" : "basic");
-            } else {
-                setHouseholdId(window.localStorage.getItem("defaultHouseholdId"));
-                setPlan("basic");
+            try {
+                const usnap = await getDoc(doc(db, "users", user.uid));
+                if (usnap.exists()) {
+                    const data = usnap.data() as any;
+                    const hid = data?.defaultHouseholdId || window.localStorage.getItem("defaultHouseholdId");
+                    setHouseholdId(hid || null);
+                    setPlan(data?.plan === "pro" ? "pro" : "basic");
+                } else {
+                    setHouseholdId(window.localStorage.getItem("defaultHouseholdId"));
+                    setPlan("basic");
+                }
+            } catch (e) {
+                console.error(e);
+                setMsg({ type: "err", text: "載入失敗（可能係 Firestore rules / 權限）。" });
+                setHouseholdId(null);
             }
         });
 
