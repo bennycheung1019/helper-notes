@@ -3,6 +3,7 @@
 import * as React from "react";
 import { RecordStatusTag } from "@/components/records/RecordStatusTag";
 import { CategoryPill, PhotoCount } from "@/components/records/RecordPills";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 export type ReceiptImage = { url: string; path?: string; uploadedAtMs?: number };
 
@@ -10,14 +11,29 @@ export type RecordCardItem = {
     id: string;
     amountCents: number;
     status: "submitted" | "approved" | "flagged";
-    category?: string;
+    category?: string; // ✅ can be key (food/daily/...) OR legacy label ("買餸")
     note?: string;
     receiptImages?: ReceiptImage[];
 };
 
-function centsToHKD(cents: number) {
+function centsToMoney(cents: number, locale = "en-HK") {
     const v = (cents || 0) / 100;
-    return v.toLocaleString("en-HK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return v.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// ✅ translate category key if possible; otherwise show raw (legacy)
+function displayCategory(raw: string | undefined, t: (k: string) => string) {
+    const s = String(raw ?? "").trim();
+    if (!s) return t("category.other");
+
+    // Known keys stored in DB
+    const key = s.toLowerCase();
+    if (key === "food" || key === "daily" || key === "transport" || key === "other") {
+        return t(`category.${key}`);
+    }
+
+    // Legacy / custom label: show as-is
+    return s;
 }
 
 export function RecordCard({
@@ -25,7 +41,7 @@ export function RecordCard({
     onClick,
     onPreviewClick,
     rightSlot,
-    photoCountPlacement = "pill", // ✅ 新增：pill | thumbnail
+    photoCountPlacement = "pill", // pill | thumbnail
 }: {
     item: RecordCardItem;
     onClick?: () => void;
@@ -33,8 +49,11 @@ export function RecordCard({
     rightSlot?: React.ReactNode;
     photoCountPlacement?: "pill" | "thumbnail";
 }) {
-    const category = (item.category || "其他").trim() || "其他";
+    const { t } = useI18n();
+
+    const category = displayCategory(item.category, t);
     const note = (item.note || "").trim();
+
     const imgCount = item.receiptImages?.length ?? 0;
     const preview = imgCount > 0 ? item.receiptImages![0].url : null;
     const moreCount = imgCount > 1 ? imgCount - 1 : 0;
@@ -63,6 +82,7 @@ export function RecordCard({
                 position: "relative",
             }}
         >
+            {/* status tag already handled in RecordStatusTag */}
             <RecordStatusTag status={item.status} />
 
             <div
@@ -74,10 +94,10 @@ export function RecordCard({
                     paddingLeft: 68,
                 }}
             >
-                {/* ROW 1 / COL 1 */}
+                {/* LEFT */}
                 <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 20, fontWeight: 950, color: "var(--text)" }}>
-                        HK$ {centsToHKD(item.amountCents)}
+                        {t("records.currencyPrefix")} {centsToMoney(item.amountCents)}
                     </div>
 
                     <div
@@ -93,7 +113,7 @@ export function RecordCard({
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <CategoryPill text={category} />
 
-                            {/* ✅ 只喺 pill 模式先顯示 */}
+                            {/* pill mode only */}
                             {photoCountPlacement === "pill" ? <PhotoCount count={imgCount} /> : null}
                         </div>
                     </div>
@@ -117,7 +137,7 @@ export function RecordCard({
                     ) : null}
                 </div>
 
-                {/* ROW 1 / COL 2 */}
+                {/* RIGHT thumbnail */}
                 {preview ? (
                     <div
                         onClick={(e) => {
@@ -137,16 +157,16 @@ export function RecordCard({
                             justifySelf: "end",
                             position: "relative",
                         }}
-                        aria-label={onPreviewClick ? "Open receipt image" : "receipt image"}
+                        aria-label={onPreviewClick ? t("records.card.openReceipt") : t("records.card.receiptImage")}
                     >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                             src={preview}
-                            alt="receipt"
+                            alt={t("records.card.receiptAlt")}
                             style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                         />
 
-                        {/* ✅ thumbnail badge：只喺 thumbnail 模式顯示 */}
+                        {/* thumbnail mode badge */}
                         {photoCountPlacement === "thumbnail" && moreCount > 0 ? (
                             <span
                                 style={{
@@ -168,7 +188,7 @@ export function RecordCard({
                     </div>
                 ) : null}
 
-                {/* ROW 2: actions pinned bottom-right */}
+                {/* actions */}
                 {rightSlot ? (
                     <div
                         style={{

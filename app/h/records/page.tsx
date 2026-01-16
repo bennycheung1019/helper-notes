@@ -23,6 +23,7 @@ import {
 import { RecordList, type RecordListItem } from "@/components/records/RecordList";
 import type { ReceiptImage } from "@/components/records/RecordCard";
 import { saveReturnToCurrentPage, restoreScrollOnce } from "@/lib/returnTo";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 type RecordItem = {
     id: string;
@@ -37,13 +38,21 @@ type RecordItem = {
 
 const PAGE_SIZE = 10;
 
-function centsToHKD(cents: number) {
+function centsToMoney(cents: number, locale: string) {
     const v = (cents || 0) / 100;
-    return v.toLocaleString("en-HK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return v.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function localeFromLang(lang: string) {
+    if (lang === "id") return "id-ID";
+    if (lang === "en") return "en-HK";
+    return "zh-HK";
 }
 
 export default function HelperRecordsPage() {
     const router = useRouter();
+    const { t, lang } = useI18n();
+    const locale = localeFromLang(lang);
 
     const [householdId, setHouseholdId] = useState<string | null>(null);
     const [uid, setUid] = useState<string | null>(null);
@@ -58,10 +67,10 @@ export default function HelperRecordsPage() {
     const lastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
     const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-    // ✅ 必須用戶真係捲過，先 allow load more（避免首屏自動 loadMore）
+    // 必須用戶真係捲過，先 allow load more
     const hasUserScrolledRef = useRef(false);
 
-    // ✅ coming back from detail => restore scroll
+    // coming back from detail => restore scroll
     useEffect(() => {
         restoreScrollOnce();
     }, []);
@@ -81,13 +90,14 @@ export default function HelperRecordsPage() {
                 router.replace("/h/login");
                 return;
             }
+
             syncAuthUid(user.uid);
             setUid(user.uid);
 
             const hid = window.localStorage.getItem("helperHouseholdId");
             if (!hid) {
                 setHouseholdId(null);
-                setMsg("未綁定家庭，請用僱主邀請連結加入一次。");
+                setMsg(t("hRecords.noHousehold"));
                 setLoadingFirst(false);
                 return;
             }
@@ -103,7 +113,7 @@ export default function HelperRecordsPage() {
         });
 
         return () => unsub();
-    }, [router]);
+    }, [router, t]);
 
     async function loadFirst(hid: string, userId: string) {
         setMsg("");
@@ -127,7 +137,7 @@ export default function HelperRecordsPage() {
                     id: d.id,
                     amountCents: data.amountCents ?? 0,
                     status: data.status ?? "submitted",
-                    category: data.category ?? "其他",
+                    category: data.category ?? t("records.category.other"),
                     note: data.note ?? "",
                     receiptImages: data.receiptImages ?? [],
                     createdAt: data.createdAt,
@@ -141,7 +151,7 @@ export default function HelperRecordsPage() {
             setHasMore(snap.docs.length === PAGE_SIZE);
         } catch (e) {
             console.error(e);
-            setMsg("讀取失敗（可能需要 Firestore index 或 rules）。");
+            setMsg(t("hRecords.loadFail"));
             setHasMore(false);
         } finally {
             setLoadingFirst(false);
@@ -184,7 +194,7 @@ export default function HelperRecordsPage() {
                     id: d.id,
                     amountCents: data.amountCents ?? 0,
                     status: data.status ?? "submitted",
-                    category: data.category ?? "其他",
+                    category: data.category ?? t("records.category.other"),
                     note: data.note ?? "",
                     receiptImages: data.receiptImages ?? [],
                     createdAt: data.createdAt,
@@ -203,7 +213,7 @@ export default function HelperRecordsPage() {
             setHasMore(snap.docs.length === PAGE_SIZE);
         } catch (e) {
             console.error(e);
-            setMsg("載入更多失敗（可能需要 index）。");
+            setMsg(t("hRecords.loadMoreFail"));
             setHasMore(false);
         } finally {
             setLoadingMore(false);
@@ -219,10 +229,7 @@ export default function HelperRecordsPage() {
             (entries) => {
                 const first = entries[0];
                 if (!first?.isIntersecting) return;
-
-                // ✅ 未捲過就唔載入
                 if (!hasUserScrolledRef.current) return;
-
                 if (!householdId || !uid) return;
                 loadMore(householdId, uid);
             },
@@ -233,7 +240,6 @@ export default function HelperRecordsPage() {
         return () => io.disconnect();
     }, [householdId, uid, hasMore, loadingMore]);
 
-    // ✅ align to RecordListItem
     const listItems: RecordListItem[] = useMemo(
         () =>
             items.map((it) => ({
@@ -249,13 +255,15 @@ export default function HelperRecordsPage() {
     );
 
     return (
-        <AppShell role="helper">
+        <AppShell role="helper" title={t("title.helper.records")}>
             <main style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
                     <div>
-                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950, color: "var(--text)" }}>記錄</h1>
+                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950, color: "var(--text)" }}>
+                            {t("title.helper.records")}
+                        </h1>
                         <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>
-                            先顯示最近 {PAGE_SIZE} 筆，捲到底會自動載入更多
+                            {t("hRecords.hint").replace("{n}", String(PAGE_SIZE))}
                         </div>
                     </div>
                 </div>
@@ -277,36 +285,41 @@ export default function HelperRecordsPage() {
                 ) : null}
 
                 {loadingFirst ? (
-                    <div style={{ marginTop: 14, color: "var(--muted)", fontWeight: 900 }}>載入中…</div>
+                    <div style={{ marginTop: 14, color: "var(--muted)", fontWeight: 900 }}>
+                        {t("common.loading")}
+                    </div>
                 ) : (
                     <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 14 }}>
                         <RecordList
                             items={listItems}
-                            // ✅ 日期右邊顯示當日總額
-                            dayRightSlot={(_dateKey: string, rows: RecordListItem[]) => {
-                                const totalCents = rows.reduce((sum: number, r: RecordListItem) => sum + (r.amountCents || 0), 0);
-                                return `HK$ ${centsToHKD(totalCents)}`;
+                            dayRightSlot={(_dateKey, rows) => {
+                                const totalCents = rows.reduce((s, r) => s + (r.amountCents || 0), 0);
+                                return `${t("records.totalPrefix")} ${centsToMoney(totalCents, locale)}`;
                             }}
-                            onItemClick={(id: string) => {
-                                // ✅ 入 detail 前記住 returnTo + scroll
+                            onItemClick={(id) => {
                                 saveReturnToCurrentPage();
                                 router.push(`/h/records/${id}`);
                             }}
                         />
 
-                        {/* sentinel + loading indicator */}
                         <div ref={sentinelRef} style={{ height: 1 }} />
 
                         {loadingMore ? (
-                            <div style={{ padding: "10px 2px", color: "var(--muted)", fontWeight: 900 }}>載入更多…</div>
+                            <div style={{ padding: "10px 2px", color: "var(--muted)", fontWeight: 900 }}>
+                                {t("common.loadingMore")}
+                            </div>
                         ) : hasMore ? (
                             <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.45)", fontWeight: 900 }}>
-                                （向下捲會載入更多）
+                                {t("common.scrollToLoad")}
                             </div>
                         ) : items.length > 0 ? (
-                            <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.45)", fontWeight: 900 }}>已到最底 ✅</div>
+                            <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.45)", fontWeight: 900 }}>
+                                {t("common.reachedEnd")}
+                            </div>
                         ) : (
-                            <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.55)", fontWeight: 900 }}>未有記錄</div>
+                            <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.55)", fontWeight: 900 }}>
+                                {t("hRecords.empty")}
+                            </div>
                         )}
                     </div>
                 )}

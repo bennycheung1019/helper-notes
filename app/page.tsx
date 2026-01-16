@@ -4,6 +4,11 @@ import { useRouter } from "next/navigation";
 import Button from "@/components/ui/Button";
 import styles from "./landing.module.css";
 import Image from "next/image";
+import React from "react";
+
+import { useI18n } from "@/components/i18n/LangProvider";
+import type { Lang } from "@/lib/i18n";
+import { LANG_NAME } from "@/lib/i18n";
 
 function ImgPlaceholder({
   label,
@@ -27,20 +32,34 @@ function ImgPlaceholder({
   );
 }
 
+function nextLang(current: Lang): Lang {
+  const order: Lang[] = ["zh-HK", "en", "id"];
+  const idx = order.indexOf(current);
+  return order[(idx + 1) % order.length];
+}
+
+function langLabelShort(lang: Lang) {
+  // 顯示俾 user 易明：唔用「繁」
+  if (lang === "zh-HK") return "中文";
+  if (lang === "en") return "English";
+  return "Bahasa";
+}
+
 export default function LandingPage() {
   const router = useRouter();
+  const { lang, setLang, t } = useI18n();
 
   // Theme button colors (Employer = Green, Helper = Yellow)
   const employerBtnStyle: React.CSSProperties = {
-    background: "#2EC4B6", // Tiffany-ish Green
+    background: "#2EC4B6",
     color: "#ffffff",
     border: "1px solid rgba(18,18,18,0.10)",
     boxShadow: "0 14px 30px rgba(18,18,18,0.10)",
   };
 
   const helperBtnStyle: React.CSSProperties = {
-    background: "#F4C430", // Warm Yellow
-    color: "#111827", // dark gray text
+    background: "#F4C430",
+    color: "#111827",
     border: "1px solid rgba(18,18,18,0.10)",
     boxShadow: "0 14px 30px rgba(18,18,18,0.08)",
   };
@@ -54,27 +73,73 @@ export default function LandingPage() {
             <div className={styles.logo} aria-hidden="true">
               <Image src="/icon_512.png" alt="" width={34} height={34} priority />
             </div>
-            <div className={styles.brandName}>姐姐記帳</div>
+
+            {/* ✅ bold brand name */}
+            <div className={styles.brandName} style={{ fontWeight: 950 }}>
+              {t("landing.brand")}
+            </div>
           </div>
 
-          <div className={styles.navRight}>
-            <Button
-              tone="outline"
-              fullWidth={false}
-              onClick={() => router.push("/h/login")}
-              style={helperBtnStyle}
+          {/* ✅ only language switch, remove login buttons */}
+          <div className={styles.navRight} style={{ gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => setLang(nextLang(lang))}
+              aria-label="Switch language"
+              title={`Language: ${LANG_NAME[lang]}`}
+              style={{
+                height: 40,
+                padding: "0 10px 0 8px",
+                borderRadius: 999,
+                border: "1px solid rgba(18,18,18,0.10)",
+                background: "rgba(255,255,255,0.88)",
+                boxShadow: "0 10px 22px rgba(18,18,18,0.08)",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                WebkitTapHighlightColor: "transparent",
+              }}
             >
-              姐姐入口
-            </Button>
+              {/* 🌐 icon */}
+              <span
+                aria-hidden
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 999,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 16,
+                  background: "rgba(15,23,42,0.06)",
+                  border: "1px solid rgba(15,23,42,0.10)",
+                  lineHeight: 1,
+                }}
+              >
+                🌐
+              </span>
 
-            <Button
-              tone="primary"
-              fullWidth={false}
-              onClick={() => router.push("/e/login")}
-              style={employerBtnStyle}
-            >
-              僱主入口
-            </Button>
+              {/* language pill */}
+              <span
+                style={{
+                  height: 28,
+                  padding: "0 10px",
+                  borderRadius: 999,
+                  background: "rgba(15,23,42,0.06)",
+                  border: "1px solid rgba(15,23,42,0.10)",
+                  fontWeight: 950,
+                  fontSize: 12,
+                  color: "#111827",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  lineHeight: 1,
+                }}
+              >
+                {langLabelShort(lang)}
+              </span>
+            </button>
           </div>
         </div>
       </header>
@@ -83,12 +148,9 @@ export default function LandingPage() {
         {/* Hero */}
         <section className={styles.heroBear}>
           <div className={styles.heroLeft}>
-            <div className={styles.kicker}>清楚．簡單．每日對數</div>
-            <h1 className={styles.h1}>姐姐記帳</h1>
-            <p className={styles.sub}>
-              姐姐每日記低買餸／日用品支出，上載收據。僱主按日睇總額、批核同跟進。唔使 Excel，
-              唔使 WhatsApp 問來問去。
-            </p>
+            <div className={styles.kicker}>{t("landing.kicker")}</div>
+            <h1 className={styles.h1}>{t("landing.title")}</h1>
+            <p className={styles.sub}>{t("landing.sub")}</p>
 
             <div className={styles.ctas}>
               <Button
@@ -97,7 +159,7 @@ export default function LandingPage() {
                 onClick={() => router.push("/e/login")}
                 style={employerBtnStyle}
               >
-                開啟僱主 App
+                {t("landing.ctaEmployer")}
               </Button>
 
               <Button
@@ -106,14 +168,14 @@ export default function LandingPage() {
                 onClick={() => router.push("/h/login")}
                 style={helperBtnStyle}
               >
-                開啟姐姐 App
+                {t("landing.ctaHelper")}
               </Button>
             </div>
 
             <ul className={styles.mini}>
-              <li>✅ 按日分組 + 當日總額</li>
-              <li>✅ 待批／已批／需跟進</li>
-              <li>✅ 收據相片留底易追查</li>
+              <li>{t("landing.mini1")}</li>
+              <li>{t("landing.mini2")}</li>
+              <li>{t("landing.mini3")}</li>
             </ul>
           </div>
 
@@ -121,7 +183,7 @@ export default function LandingPage() {
             {/* HERO MAIN ILLUSTRATION */}
             <Image
               src="/hero/hero-assistant2.png"
-              alt="姐姐／助手 手繪主角插畫"
+              alt="Hero illustration"
               width={1024}
               height={1024}
               style={{
@@ -133,30 +195,25 @@ export default function LandingPage() {
               priority
             />
 
-            {/* Optional small doodles */}
-            <div className={styles.heroDoodles}>
-              <ImgPlaceholder label="小插畫 A（收據/袋/車仔）" ratio="1:1" suggest="256×256" />
-              <ImgPlaceholder label="小插畫 B（清單/鉛筆）" ratio="1:1" suggest="256×256" />
-              <ImgPlaceholder label="小插畫 C（相機/票據）" ratio="1:1" suggest="256×256" />
-            </div>
+            {/* ✅ removed 小插畫 A–C */}
           </div>
         </section>
 
         {/* Simple 3-line features */}
         <section className={styles.features} aria-label="Features">
           <div className={styles.featureCard}>
-            <div className={styles.featureTitle}>每日總額，一眼清</div>
-            <div className={styles.featureText}>按日期分組，自動計當日總額，對數唔洗估。</div>
+            <div className={styles.featureTitle}>{t("landing.f1.title")}</div>
+            <div className={styles.featureText}>{t("landing.f1.text")}</div>
           </div>
 
           <div className={styles.featureCard}>
-            <div className={styles.featureTitle}>收據同備註齊</div>
-            <div className={styles.featureText}>相片留底＋備註，日後追查／報銷更快。</div>
+            <div className={styles.featureTitle}>{t("landing.f2.title")}</div>
+            <div className={styles.featureText}>{t("landing.f2.text")}</div>
           </div>
 
           <div className={styles.featureCard}>
-            <div className={styles.featureTitle}>批核流程好簡單</div>
-            <div className={styles.featureText}>待批／已批／需跟進，清清楚楚唔混亂。</div>
+            <div className={styles.featureTitle}>{t("landing.f3.title")}</div>
+            <div className={styles.featureText}>{t("landing.f3.text")}</div>
           </div>
         </section>
 
@@ -164,8 +221,8 @@ export default function LandingPage() {
         <section className={styles.previewWrap}>
           <div className={styles.previewCard}>
             <div className={styles.previewTop}>
-              <div className={styles.previewTitle}>App 預覽</div>
-              <div className={styles.previewPill}>示意：今日總額 HK$ 428.50</div>
+              <div className={styles.previewTitle}>{t("landing.preview.title")}</div>
+              <div className={styles.previewPill}>{t("landing.preview.pill")}</div>
             </div>
 
             <ImgPlaceholder
@@ -174,18 +231,13 @@ export default function LandingPage() {
               suggest="1600×1000（最少 1200×750）"
             />
 
-            <div className={styles.previewNote}>
-              建議：之後你畀我一張 /e/records 或 /h/records 截圖，我哋用一張大圖做重點，視覺會即刻好似
-              Bear。
-            </div>
+            <div className={styles.previewNote}>{t("landing.preview.note")}</div>
           </div>
         </section>
 
         <footer className={styles.footer}>
-          <div>© {new Date().getFullYear()} 姐姐記帳</div>
-          <div style={{ color: "var(--muted)" }}>
-            下一步：換上你嘅手繪插畫（主角 + 小圖示 + App 截圖）
-          </div>
+          <div>© {new Date().getFullYear()} {t("landing.brand")}</div>
+          {/* ✅ removed “下一步…” line */}
         </footer>
       </main>
     </div>

@@ -11,6 +11,7 @@ import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import Button from "@/components/ui/Button";
 import { CategoryPill } from "@/components/records/RecordPills";
 import { consumeReturnTo } from "@/lib/returnTo";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 type ReceiptImage = {
     url: string;
@@ -45,31 +46,12 @@ function ymd(d: Date) {
     return `${y}-${m}-${dd}`;
 }
 
-function prettyDate(d: Date) {
-    const today = ymd(new Date());
-    const target = ymd(d);
-    if (target === today) return "今日";
-    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
-}
-
 function pad2(n: number) {
     return String(n).padStart(2, "0");
 }
 
 function formatTimeHHMM(d: Date) {
     return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
-
-function statusLabel(s: RecordDoc["status"]) {
-    if (s === "submitted") return "待批";
-    if (s === "approved") return "已批";
-    return "需跟進";
-}
-
-function statusTone(s: RecordDoc["status"]) {
-    if (s === "submitted") return { bg: "rgba(245, 158, 11, 0.16)", fg: "#92400E" };
-    if (s === "approved") return { bg: "rgba(16, 185, 129, 0.16)", fg: "#065F46" };
-    return { bg: "rgba(239, 68, 68, 0.16)", fg: "#991B1B" };
 }
 
 async function copyToClipboard(text: string) {
@@ -96,6 +78,7 @@ async function copyToClipboard(text: string) {
 export default function EmployerRecordDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const router = useRouter();
     const { id: recordId } = React.use(params);
+    const { t } = useI18n();
 
     const [loading, setLoading] = useState(true);
     const [householdId, setHouseholdId] = useState<string | null>(null);
@@ -107,6 +90,25 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
 
     // copy feedback
     const [copied, setCopied] = useState(false);
+
+    function prettyDate(d: Date) {
+        const today = ymd(new Date());
+        const target = ymd(d);
+        if (target === today) return t("common.today");
+        return `${d.getFullYear()}${t("date.year")}${d.getMonth() + 1}${t("date.month")}${d.getDate()}${t("date.day")}`;
+    }
+
+    function statusLabel(s: RecordDoc["status"]) {
+        if (s === "submitted") return t("record.status.submitted");
+        if (s === "approved") return t("record.status.approved");
+        return t("record.status.flagged");
+    }
+
+    function statusTone(s: RecordDoc["status"]) {
+        if (s === "submitted") return { bg: "rgba(245, 158, 11, 0.16)", fg: "#92400E" };
+        if (s === "approved") return { bg: "rgba(16, 185, 129, 0.16)", fg: "#065F46" };
+        return { bg: "rgba(239, 68, 68, 0.16)", fg: "#991B1B" };
+    }
 
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, async (user) => {
@@ -125,7 +127,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                     null;
 
                 if (!hid) {
-                    setMsg("未建立家庭或未設定家庭。");
+                    setMsg(t("record.noHousehold"));
                     setHouseholdId(null);
                     setLoading(false);
                     return;
@@ -135,14 +137,14 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                 await loadRecord(hid, recordId);
             } catch (e) {
                 console.error(e);
-                setMsg("載入失敗（可能係網絡或 Firestore rules）。");
+                setMsg(t("record.loadFail"));
                 setLoading(false);
             }
         });
 
         return () => unsub();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [router, recordId]);
+    }, [router, recordId, t]);
 
     async function loadRecord(hid: string, rid: string) {
         setLoading(true);
@@ -152,7 +154,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
             const rsnap = await getDoc(doc(db, "households", hid, "records", rid));
             if (!rsnap.exists()) {
                 setRecord(null);
-                setMsg("搵唔到呢條記錄。");
+                setMsg(t("record.notFound"));
                 setLoading(false);
                 return;
             }
@@ -160,7 +162,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
             setRecord(data);
         } catch (e) {
             console.error(e);
-            setMsg("載入失敗（可能係 Firestore rules）。");
+            setMsg(t("record.loadFail"));
         } finally {
             setLoading(false);
         }
@@ -181,7 +183,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
             setRecord((prev) => (prev ? { ...prev, status } : prev));
         } catch (e) {
             console.error(e);
-            setMsg("更新狀態失敗（可能係 Firestore rules）。");
+            setMsg(t("record.updateStatusFail"));
         }
     }
 
@@ -189,7 +191,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
         const d: Date | null = record?.createdAt?.toDate?.() ?? null;
         if (!d) return { dayLabel: "", timeLabel: "" };
         return { dayLabel: prettyDate(d), timeLabel: formatTimeHHMM(d) };
-    }, [record?.createdAt]);
+    }, [record?.createdAt, t]);
 
     const images = useMemo(() => {
         return (record?.receiptImages || []).map((x) => x.url).filter(Boolean);
@@ -198,18 +200,11 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
     // ✅ FIX: return to previous location reliably
     function handleBack() {
         const rt = consumeReturnTo();
-
-        // 1) 如果有 returnTo（由 /e/records 儲存落嚟），用 push 返去，保留 history
         if (rt) {
             router.push(rt);
             return;
         }
-
-        // 2) 無 returnTo：用 Next router.back()
         router.back();
-
-        // 3) 極端情況：如果你想再保險，可以加個 timeout fallback
-        // window.setTimeout(() => router.replace("/e/records"), 250);
     }
 
     async function handleCopyId() {
@@ -223,9 +218,9 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
 
     if (loading) {
         return (
-            <AppShell role="employer" title="記錄詳情">
+            <AppShell role="employer" title={t("record.detailTitle")}>
                 <main style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
-                    <div style={{ color: "var(--text)", fontWeight: 900 }}>載入中…</div>
+                    <div style={{ color: "var(--text)", fontWeight: 900 }}>{t("common.loading")}</div>
                 </main>
             </AppShell>
         );
@@ -233,13 +228,13 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
 
     if (!record) {
         return (
-            <AppShell role="employer" title="記錄詳情">
+            <AppShell role="employer" title={t("record.detailTitle")}>
                 <main style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
-                    <div style={{ color: "var(--text)", fontWeight: 900 }}>{msg || "暫時未有資料"}</div>
+                    <div style={{ color: "var(--text)", fontWeight: 900 }}>{msg || t("common.noData")}</div>
 
                     <div style={{ marginTop: 12 }}>
                         <Button tone="outline" fullWidth={false} onClick={handleBack}>
-                            ← 返回
+                            ← {t("common.back")}
                         </Button>
                     </div>
                 </main>
@@ -250,15 +245,15 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
     const tone = statusTone(record.status);
 
     return (
-        <AppShell role="employer" title="記錄詳情">
+        <AppShell role="employer" title={t("record.detailTitle")}>
             <main style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
                 {/* header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
                     <div style={{ minWidth: 0 }}>
-                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950, color: "var(--text)" }}>記錄詳情</h1>
+                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950, color: "var(--text)" }}>{t("record.detailTitle")}</h1>
 
                         <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>
-                            提交者：<b style={{ color: "var(--text)" }}>{safeText(record.createdByLabel) || "姐姐"}</b>
+                            {t("record.submitter")}：<b style={{ color: "var(--text)" }}>{safeText(record.createdByLabel) || t("record.defaultHelper")}</b>
                             {createdInfo.dayLabel ? <span style={{ marginLeft: 8 }}>｜ {createdInfo.dayLabel}</span> : null}
                             {createdInfo.timeLabel ? <span style={{ marginLeft: 6 }}>{createdInfo.timeLabel}</span> : null}
                         </div>
@@ -266,7 +261,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
 
                     {/* back button top-right */}
                     <Button tone="outline" fullWidth={false} onClick={handleBack}>
-                        ← 返回
+                        ← {t("common.back")}
                     </Button>
                 </div>
 
@@ -301,18 +296,18 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                         {statusLabel(record.status)}
                     </span>
 
-                    <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>金額</div>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>{t("record.amount")}</div>
                     <div style={{ marginTop: 8, fontSize: 24, fontWeight: 950, color: "var(--text)" }}>
                         HK$ {centsToHKD(record.amountCents)}
                     </div>
 
                     <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                        <CategoryPill text={safeText(record.category) || "其他"} />
+                        <CategoryPill text={safeText(record.category) || t("category.other")} />
                     </div>
 
                     {safeText(record.note) ? (
                         <div style={{ marginTop: 12 }}>
-                            <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>備註</div>
+                            <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>{t("record.note")}</div>
                             <div
                                 style={{
                                     marginTop: 6,
@@ -341,17 +336,17 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                     >
                         {record.status !== "approved" ? (
                             <Button tone="success" fullWidth={false} onClick={() => setStatus("approved")}>
-                                批核
+                                {t("record.action.approve")}
                             </Button>
                         ) : null}
 
                         {record.status !== "flagged" ? (
                             <Button tone="danger" fullWidth={false} onClick={() => setStatus("flagged")}>
-                                需跟進
+                                {t("record.action.flag")}
                             </Button>
                         ) : (
                             <Button tone="outline" fullWidth={false} onClick={() => setStatus("submitted")}>
-                                取消標記
+                                {t("record.action.unflag")}
                             </Button>
                         )}
                     </div>
@@ -362,7 +357,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                     <button
                         type="button"
                         onClick={handleCopyId}
-                        title="Click to copy（for CS）"
+                        title={t("record.copyIdHint")}
                         style={{
                             border: "none",
                             background: "transparent",
@@ -374,9 +369,9 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                             fontWeight: 900,
                         }}
                     >
-                        Record ID：{recordId}
+                        {t("record.recordIdLabel")}：{recordId}
                         <span style={{ marginLeft: 8, color: copied ? "rgba(16,185,129,0.95)" : "rgba(15,23,42,0.35)", fontWeight: 950 }}>
-                            {copied ? "已複製 ✅" : ""}
+                            {copied ? t("common.copied") : ""}
                         </span>
                     </button>
                 </div>
@@ -384,7 +379,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                 {/* receipts grid */}
                 {images.length ? (
                     <div style={{ marginTop: 12 }}>
-                        <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)", marginBottom: 8 }}>收據相片</div>
+                        <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)", marginBottom: 8 }}>{t("record.receiptPhotos")}</div>
 
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                             {images.map((url, idx) => (
@@ -401,7 +396,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                                         cursor: "pointer",
                                         boxShadow: "0 12px 26px rgba(15, 23, 42, 0.08)",
                                     }}
-                                    aria-label={`Open receipt image ${idx + 1}`}
+                                    aria-label={`${t("record.openReceiptImage")} ${idx + 1}`}
                                 >
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={url} alt="receipt" style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
@@ -462,7 +457,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                                 }}
                             >
                                 <div style={{ fontWeight: 950 }}>
-                                    收據（{lightbox.index + 1}/{lightbox.images.length}）
+                                    {t("record.receipt")}（{lightbox.index + 1}/{lightbox.images.length}）
                                 </div>
 
                                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -479,8 +474,8 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                                             opacity: lightbox.index === 0 ? 0.5 : 1,
                                         }}
                                         disabled={lightbox.index === 0}
-                                        aria-label="Prev image"
-                                        title="上一張"
+                                        aria-label={t("record.prevImage")}
+                                        title={t("record.prevImage")}
                                     >
                                         ←
                                     </button>
@@ -500,8 +495,8 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                                             opacity: lightbox.index === lightbox.images.length - 1 ? 0.5 : 1,
                                         }}
                                         disabled={lightbox.index === lightbox.images.length - 1}
-                                        aria-label="Next image"
-                                        title="下一張"
+                                        aria-label={t("record.nextImage")}
+                                        title={t("record.nextImage")}
                                     >
                                         →
                                     </button>
@@ -517,10 +512,10 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                                             fontWeight: 950,
                                             cursor: "pointer",
                                         }}
-                                        aria-label="Close"
-                                        title="關閉"
+                                        aria-label={t("record.close")}
+                                        title={t("record.close")}
                                     >
-                                        關閉
+                                        {t("record.close")}
                                     </button>
                                 </div>
                             </div>
@@ -554,7 +549,7 @@ export default function EmployerRecordDetailPage({ params }: { params: Promise<{
                                                 cursor: "pointer",
                                                 flex: "0 0 auto",
                                             }}
-                                            aria-label={`Open image ${i + 1}`}
+                                            aria-label={`${t("record.openReceiptImage")} ${i + 1}`}
                                         >
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
                                             <img src={u} alt={`thumb ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />

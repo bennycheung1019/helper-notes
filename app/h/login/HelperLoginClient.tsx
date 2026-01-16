@@ -17,6 +17,7 @@ import AuthLayout from "@/components/auth/AuthLayout";
 import Button from "@/components/ui/Button";
 import GoogleButton from "@/components/auth/GoogleButton";
 import styles from "@/components/auth/auth.module.css";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 function safeNextPath(n: string | null) {
     const s = String(n || "").trim();
@@ -29,6 +30,7 @@ function safeNextPath(n: string | null) {
 export default function HelperLoginClient() {
     const router = useRouter();
     const sp = useSearchParams();
+    const { t } = useI18n();
 
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
@@ -51,7 +53,7 @@ export default function HelperLoginClient() {
         setPersistence(auth, browserLocalPersistence).catch(() => { });
     }, []);
 
-    // ✅ 重要：處理 signInWithRedirect 回來嗰一下
+    // ✅ 處理 signInWithRedirect 回來
     useEffect(() => {
         (async () => {
             try {
@@ -72,7 +74,7 @@ export default function HelperLoginClient() {
             await signInAnonymously(auth);
             router.replace(nextUrl);
         } catch {
-            setError("登入失敗，請再試一次");
+            setError(t("hLogin.error.generic"));
         } finally {
             setBusy(false);
         }
@@ -90,24 +92,26 @@ export default function HelperLoginClient() {
             } catch {
                 // mobile fallback
                 await signInWithRedirect(auth, provider);
-                // redirect 會離開頁面，return
                 return;
             }
         } catch {
-            setError("Google 登入失敗，請再試");
+            setError(t("hLogin.error.google"));
             setBusy(false);
         }
     }
 
     return (
-        <AuthLayout title="姐姐登入" subtitle="登入後會自動完成加入">
+        <AuthLayout
+            title={t("hLogin.title")}
+            subtitle={t("hLogin.subtitle")}
+        >
             {error && <div className={styles.error}>{error}</div>}
 
             <Button tone="yellow" fullWidth disabled={busy} onClick={onAnonymousLogin}>
-                一鍵登入
+                {t("hLogin.quickLogin")}
             </Button>
 
-            <div className={styles.divider}>或</div>
+            <div className={styles.divider}>{t("common.or")}</div>
 
             <GoogleButton onClick={onGoogleLogin} disabled={busy} />
         </AuthLayout>

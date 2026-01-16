@@ -24,6 +24,8 @@ import Button from "@/components/ui/Button";
 import { RecordList, RecordListItem } from "@/components/records/RecordList";
 import { saveReturnToCurrentPage, restoreScrollOnce } from "@/lib/returnTo";
 
+import { useI18n } from "@/components/i18n/LangProvider";
+
 type ReceiptImage = { url: string; path?: string; uploadedAtMs?: number };
 
 type RecordItem = {
@@ -154,6 +156,17 @@ function IconButton({
 
 export default function EmployerRecordsPage() {
     const router = useRouter();
+    const { t } = useI18n();
+
+    const tr = (key: string, vars?: Record<string, string | number>) => {
+        let s = t(key);
+        if (vars) {
+            for (const [k, v] of Object.entries(vars)) {
+                s = s.replaceAll(`{${k}}`, String(v));
+            }
+        }
+        return s;
+    };
 
     const [householdId, setHouseholdId] = useState<string | null>(null);
     const [plan, setPlan] = useState<"basic" | "pro">("basic");
@@ -233,13 +246,13 @@ export default function EmployerRecordsPage() {
                 }
             } catch (e) {
                 console.error(e);
-                setMsg({ type: "err", text: "載入失敗（可能係 Firestore rules / 權限）。" });
+                setMsg({ type: "err", text: t("records.err.loadProfile") });
                 setHouseholdId(null);
             }
         });
 
         return () => unsub();
-    }, [router]);
+    }, [router, t]);
 
     // load helpers (for filter dropdown)
     useEffect(() => {
@@ -250,7 +263,7 @@ export default function EmployerRecordsPage() {
                 const snap = await getDocs(qh);
                 const list = snap.docs.map((d) => {
                     const data = d.data() as any;
-                    return { uid: d.id, label: String(data?.label || "姐姐") };
+                    return { uid: d.id, label: String(data?.label || t("records.helper.default")) };
                 });
                 list.sort((a, b) => a.label.localeCompare(b.label) || a.uid.localeCompare(b.uid));
                 setHelpers(list);
@@ -259,7 +272,7 @@ export default function EmployerRecordsPage() {
             }
         }
         loadHelpers();
-    }, [householdId]);
+    }, [householdId, t]);
 
     async function loadFirst(hid: string) {
         setMsg(null);
@@ -277,7 +290,7 @@ export default function EmployerRecordsPage() {
                     id: d.id,
                     amountCents: data.amountCents ?? 0,
                     status: data.status ?? "submitted",
-                    category: data.category ?? "其他",
+                    category: data.category ?? t("records.category.other"),
                     note: data.note ?? "",
                     receiptImages: data.receiptImages ?? [],
                     createdAt: data.createdAt,
@@ -291,7 +304,7 @@ export default function EmployerRecordsPage() {
             setHasMore(snap.docs.length === PAGE_SIZE);
         } catch (e) {
             console.error(e);
-            setMsg({ type: "err", text: "讀取失敗（可能係 Firestore rules / index）。" });
+            setMsg({ type: "err", text: t("records.err.readFirst") });
             setHasMore(false);
         } finally {
             setLoadingFirst(false);
@@ -311,7 +324,12 @@ export default function EmployerRecordsPage() {
         setMsg(null);
 
         try {
-            const q2 = query(collection(db, "households", hid, "records"), orderBy("createdAt", "desc"), startAfter(last), limit(PAGE_SIZE));
+            const q2 = query(
+                collection(db, "households", hid, "records"),
+                orderBy("createdAt", "desc"),
+                startAfter(last),
+                limit(PAGE_SIZE)
+            );
             const snap = await getDocs(q2);
 
             const rows: RecordItem[] = snap.docs.map((d) => {
@@ -320,7 +338,7 @@ export default function EmployerRecordsPage() {
                     id: d.id,
                     amountCents: data.amountCents ?? 0,
                     status: data.status ?? "submitted",
-                    category: data.category ?? "其他",
+                    category: data.category ?? t("records.category.other"),
                     note: data.note ?? "",
                     receiptImages: data.receiptImages ?? [],
                     createdAt: data.createdAt,
@@ -340,7 +358,7 @@ export default function EmployerRecordsPage() {
             setHasMore(snap.docs.length === PAGE_SIZE);
         } catch (e) {
             console.error(e);
-            setMsg({ type: "err", text: "載入更多失敗（可能需要 index）。" });
+            setMsg({ type: "err", text: t("records.err.loadMore") });
             setHasMore(false);
         } finally {
             setLoadingMore(false);
@@ -388,56 +406,49 @@ export default function EmployerRecordsPage() {
 
     const categories = useMemo(() => {
         const set = new Set<string>();
-        items.forEach((i) => set.add((i.category || "其他").trim() || "其他"));
+        items.forEach((i) => set.add((i.category || t("records.category.other")).trim() || t("records.category.other")));
         return Array.from(set).sort();
-    }, [items]);
+    }, [items, t]);
 
     const helperOptions = useMemo(() => {
         const map = new Map<string, string>();
         helpers.forEach((h) => map.set(h.uid, h.label));
         items.forEach((it) => {
             if (it.createdByUserId && !map.has(it.createdByUserId)) {
-                map.set(it.createdByUserId, (it.createdByLabel || "").trim() || "姐姐");
+                map.set(it.createdByUserId, (it.createdByLabel || "").trim() || t("records.helper.default"));
             }
         });
         const list = Array.from(map.entries()).map(([uid, label]) => ({ uid, label }));
         list.sort((a, b) => a.label.localeCompare(b.label) || a.uid.localeCompare(b.uid));
         return list;
-    }, [helpers, items]);
+    }, [helpers, items, t]);
 
     const hasActiveFilter = statusFilter !== "all" || categoryFilter !== "all" || helperFilter !== "all";
 
     const filtered = useMemo(() => {
         return items.filter((it) => {
             const okStatus = statusFilter === "all" ? true : it.status === statusFilter;
-            const c = (it.category || "其他").trim() || "其他";
+            const c = (it.category || t("records.category.other")).trim() || t("records.category.other");
             const okCategory = categoryFilter === "all" ? true : c === categoryFilter;
             const okHelper = helperFilter === "all" ? true : (it.createdByUserId || "") === helperFilter;
             return okStatus && okCategory && okHelper;
         });
-    }, [items, statusFilter, categoryFilter, helperFilter]);
+    }, [items, statusFilter, categoryFilter, helperFilter, t]);
 
     function buildCsv(rows: RecordItem[]) {
+        // keep csv header stable (english keys ok)
         const header = ["date", "amount_hkd", "category", "note", "status", "helper", "images"].join(",");
         const lines = rows.map((r) => {
             const d: Date | null = r.createdAt?.toDate?.() ?? null;
             const dateStr = d ? formatDateYYYYMMDD(d) : "";
             const amount = ((r.amountCents || 0) / 100).toFixed(2);
-            const category = (r.category || "其他").trim() || "其他";
+            const category = (r.category || t("records.category.other")).trim() || t("records.category.other");
             const note = (r.note || "").trim();
             const status = r.status || "submitted";
-            const helper = (r.createdByLabel || "").trim() || (r.createdByUserId ? "姐姐" : "");
+            const helper = (r.createdByLabel || "").trim() || (r.createdByUserId ? t("records.helper.default") : "");
             const images = r.receiptImages?.length ?? 0;
 
-            return [
-                csvEscape(dateStr),
-                csvEscape(amount),
-                csvEscape(category),
-                csvEscape(note),
-                csvEscape(status),
-                csvEscape(helper),
-                csvEscape(images),
-            ].join(",");
+            return [csvEscape(dateStr), csvEscape(amount), csvEscape(category), csvEscape(note), csvEscape(status), csvEscape(helper), csvEscape(images)].join(",");
         });
         return [header, ...lines].join("\n");
     }
@@ -446,7 +457,7 @@ export default function EmployerRecordsPage() {
         setMsg(null);
 
         if (plan !== "pro") {
-            setMsg({ type: "err", text: "CSV 匯出係 Pro 功能。" });
+            setMsg({ type: "err", text: t("records.csv.proOnly") });
             return;
         }
 
@@ -465,7 +476,8 @@ export default function EmployerRecordsPage() {
         const csv = buildCsv(rows);
         const nameScope = scope === "all" ? "all" : `${thisYear}-${pad2(thisMonth + 1)}`;
         downloadTextFile(`helper-expense-${nameScope}.csv`, csv);
-        setMsg({ type: "ok", text: `已下載 CSV ✅（${rows.length} 筆）` });
+
+        setMsg({ type: "ok", text: tr("records.csv.downloaded", { n: rows.length }) });
     }
 
     const listItems: RecordListItem[] = useMemo(() => {
@@ -481,20 +493,20 @@ export default function EmployerRecordsPage() {
     }, [filtered]);
 
     return (
-        <AppShell role="employer" title="記錄">
+        <AppShell role="employer" title={t("records.title")}>
             <main style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
                 {/* Header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
                     <div>
-                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950, color: "var(--text)" }}>記錄</h1>
+                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950, color: "var(--text)" }}>{t("records.title")}</h1>
                         <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>
-                            只顯示最近 {PAGE_SIZE} 筆，捲到底自動載入更多
+                            {tr("records.sub.recentAutoLoad", { n: PAGE_SIZE })}
                         </div>
                     </div>
 
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                         <IconButton
-                            title={hasActiveFilter ? "篩選（已啟用）" : "篩選"}
+                            title={hasActiveFilter ? t("records.filters.titleActive") : t("records.filters.title")}
                             icon="filter"
                             active={filtersOpen}
                             dot={hasActiveFilter}
@@ -504,7 +516,7 @@ export default function EmployerRecordsPage() {
                             }}
                         />
                         <IconButton
-                            title="CSV 匯出"
+                            title={t("records.csv.iconTitle")}
                             icon="download"
                             active={csvOpen}
                             onClick={() => {
@@ -545,7 +557,7 @@ export default function EmployerRecordsPage() {
                         }}
                     >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                            <div style={{ fontWeight: 950, color: "var(--text)" }}>篩選</div>
+                            <div style={{ fontWeight: 950, color: "var(--text)" }}>{t("records.filters.panelTitle")}</div>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -562,13 +574,20 @@ export default function EmployerRecordsPage() {
                                     cursor: "pointer",
                                 }}
                             >
-                                清除
+                                {t("records.filters.clear")}
                             </button>
                         </div>
 
                         <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
                             {(["all", "submitted", "approved", "flagged"] as const).map((f) => {
-                                const label = f === "all" ? "全部" : f === "submitted" ? "待批" : f === "approved" ? "已批" : "需跟進";
+                                const label =
+                                    f === "all"
+                                        ? t("records.filters.status.all")
+                                        : f === "submitted"
+                                            ? t("records.filters.status.submitted")
+                                            : f === "approved"
+                                                ? t("records.filters.status.approved")
+                                                : t("records.filters.status.flagged");
                                 const active = statusFilter === f;
                                 return (
                                     <button
@@ -601,13 +620,13 @@ export default function EmployerRecordsPage() {
                             }}
                         >
                             <div>
-                                <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>分類</div>
+                                <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>{t("records.filters.category")}</div>
                                 <select
                                     value={categoryFilter}
                                     onChange={(e) => setCategoryFilter(e.target.value)}
                                     style={{ marginTop: 8, width: "100%", padding: 10, borderRadius: 12 }}
                                 >
-                                    <option value="all">全部</option>
+                                    <option value="all">{t("records.filters.all")}</option>
                                     {categories.map((c) => (
                                         <option key={c} value={c}>
                                             {c}
@@ -617,13 +636,13 @@ export default function EmployerRecordsPage() {
                             </div>
 
                             <div>
-                                <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>提交者</div>
+                                <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>{t("records.filters.submitter")}</div>
                                 <select
                                     value={helperFilter}
                                     onChange={(e) => setHelperFilter(e.target.value)}
                                     style={{ marginTop: 8, width: "100%", padding: 10, borderRadius: 12 }}
                                 >
-                                    <option value="all">全部</option>
+                                    <option value="all">{t("records.filters.all")}</option>
                                     {helperOptions.map((h) => (
                                         <option key={h.uid} value={h.uid}>
                                             {h.label} ({h.uid.slice(0, 6)}…)
@@ -649,12 +668,12 @@ export default function EmployerRecordsPage() {
                     >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                             <div>
-                                <div style={{ fontWeight: 950, color: "var(--text)" }}>CSV 匯出（Pro）</div>
-                                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>
-                                    方便僱主對數／報銷／記帳
-                                </div>
+                                <div style={{ fontWeight: 950, color: "var(--text)" }}>{t("records.csv.title")}</div>
+                                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>{t("records.csv.sub")}</div>
                             </div>
-                            {plan !== "pro" ? <div style={{ fontSize: 12, fontWeight: 900, color: "#991B1B" }}>你而家係 Basic（不能匯出）</div> : null}
+                            {plan !== "pro" ? (
+                                <div style={{ fontSize: 12, fontWeight: 900, color: "#991B1B" }}>{t("records.csv.basicNoExport")}</div>
+                            ) : null}
                         </div>
 
                         <div style={{ marginTop: 12, display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
@@ -664,10 +683,10 @@ export default function EmployerRecordsPage() {
                                 onClick={() => exportCsv("thisMonth")}
                                 disabled={plan !== "pro"}
                             >
-                                匯出本月
+                                {t("records.csv.thisMonth")}
                             </Button>
                             <Button tone="outline" fullWidth={false} onClick={() => exportCsv("all")} disabled={plan !== "pro"}>
-                                匯出全部
+                                {t("records.csv.all")}
                             </Button>
                         </div>
                     </div>
@@ -676,7 +695,7 @@ export default function EmployerRecordsPage() {
                 {/* List */}
                 <div style={{ marginTop: 14 }}>
                     {loadingFirst ? (
-                        <div style={{ marginTop: 14, color: "var(--muted)", fontWeight: 900 }}>載入中…</div>
+                        <div style={{ marginTop: 14, color: "var(--muted)", fontWeight: 900 }}>{t("common.loading")}</div>
                     ) : (
                         <>
                             <RecordList
@@ -696,7 +715,10 @@ export default function EmployerRecordsPage() {
                                 dayRightSlot={(_dateKey: string, rows: RecordListItem[]) => {
                                     const totalCents = rows.reduce((sum: number, r: RecordListItem) => sum + (r.amountCents || 0), 0);
                                     const total = totalCents / 100;
-                                    return `HK$ ${total.toLocaleString("en-HK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                    return `${t("records.currencyPrefix")} ${total.toLocaleString("en-HK", {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                    })}`;
                                 }}
                             />
 
@@ -704,13 +726,13 @@ export default function EmployerRecordsPage() {
                             <div ref={sentinelRef} style={{ height: 1 }} />
 
                             {loadingMore ? (
-                                <div style={{ padding: "10px 2px", color: "var(--muted)", fontWeight: 900 }}>載入更多…</div>
+                                <div style={{ padding: "10px 2px", color: "var(--muted)", fontWeight: 900 }}>{t("records.more.loading")}</div>
                             ) : hasMore ? (
-                                <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.45)", fontWeight: 900 }}>（向下捲會載入更多）</div>
+                                <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.45)", fontWeight: 900 }}>{t("records.more.hint")}</div>
                             ) : items.length > 0 ? (
-                                <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.45)", fontWeight: 900 }}>已到最底 ✅</div>
+                                <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.45)", fontWeight: 900 }}>{t("records.more.end")}</div>
                             ) : (
-                                <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.55)", fontWeight: 900 }}>未有記錄</div>
+                                <div style={{ padding: "10px 2px", color: "rgba(15,23,42,0.55)", fontWeight: 900 }}>{t("records.empty")}</div>
                             )}
                         </>
                     )}
@@ -750,9 +772,7 @@ export default function EmployerRecordsPage() {
                                     gap: 10,
                                 }}
                             >
-                                <div style={{ fontWeight: 950 }}>
-                                    收據（{lightbox.index + 1}/{lightbox.images.length}）
-                                </div>
+                                <div style={{ fontWeight: 950 }}>{tr("records.lightbox.title", { i: lightbox.index + 1, n: lightbox.images.length })}</div>
                                 <button
                                     onClick={() => setLightbox(null)}
                                     style={{
@@ -764,7 +784,7 @@ export default function EmployerRecordsPage() {
                                         cursor: "pointer",
                                     }}
                                 >
-                                    關閉
+                                    {t("common.close")}
                                 </button>
                             </div>
 
@@ -789,7 +809,7 @@ export default function EmployerRecordsPage() {
                                                 cursor: "pointer",
                                                 flex: "0 0 auto",
                                             }}
-                                            aria-label={`Open image ${i + 1}`}
+                                            aria-label={tr("records.lightbox.thumbAria", { n: i + 1 })}
                                         >
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
                                             <img src={u} alt={`thumb ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />

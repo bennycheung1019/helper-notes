@@ -4,14 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getRedirectResult, onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 export default function HelperAuthCallbackClient() {
     const router = useRouter();
     const sp = useSearchParams();
+    const { t } = useI18n();
 
     const nextPath = useMemo(() => sp.get("next") || "/h/add", [sp]);
 
-    const [msg, setMsg] = useState("正在完成登入…");
+    const [msg, setMsg] = useState("");
+
+    // ✅ keep msg in sync with locale (and avoid hard-coded default string)
+    useEffect(() => {
+        setMsg(t("hAuth.processing"));
+    }, [t]);
 
     useEffect(() => {
         let unsub: (() => void) | null = null;
@@ -24,15 +31,15 @@ export default function HelperAuthCallbackClient() {
                 // 2) wait for auth state
                 unsub = onAuthStateChanged(auth, (user) => {
                     if (user) {
-                        setMsg("登入成功 ✅ 正在進入…");
+                        setMsg(t("hAuth.successRedirecting"));
                         router.replace(nextPath);
                     } else {
-                        setMsg("未完成登入。請返回登入頁再試一次。");
+                        setMsg(t("hAuth.notCompleted"));
                     }
                 });
             } catch (e) {
                 console.error(e);
-                setMsg("登入失敗。請返回登入頁再試一次。");
+                setMsg(t("hAuth.failed"));
             }
         }
 
@@ -41,7 +48,7 @@ export default function HelperAuthCallbackClient() {
         return () => {
             if (unsub) unsub();
         };
-    }, [router, nextPath]);
+    }, [router, nextPath, t]);
 
     return (
         <div style={{ minHeight: "100vh", background: "#fbf6ee", color: "#121212" }}>
@@ -104,7 +111,7 @@ export default function HelperAuthCallbackClient() {
                                 textOverflow: "ellipsis",
                             }}
                         >
-                            姐姐記帳
+                            {t("app.brandName")}
                         </div>
                     </a>
 
@@ -117,7 +124,7 @@ export default function HelperAuthCallbackClient() {
                             color: "rgba(18,18,18,0.65)",
                         }}
                     >
-                        返回登入
+                        {t("common.backToLogin")}
                     </a>
                 </div>
             </header>
@@ -147,7 +154,7 @@ export default function HelperAuthCallbackClient() {
                             width: "fit-content",
                         }}
                     >
-                        處理登入
+                        {t("hAuth.badgeTitle")}
                     </div>
 
                     <h1
@@ -159,7 +166,7 @@ export default function HelperAuthCallbackClient() {
                             fontWeight: 1200,
                         }}
                     >
-                        請稍等
+                        {t("hAuth.title")}
                     </h1>
 
                     <p
@@ -188,7 +195,7 @@ export default function HelperAuthCallbackClient() {
                                 color: "#121212",
                             }}
                         >
-                            返回登入
+                            {t("common.backToLogin")}
                         </a>
 
                         <a
@@ -206,7 +213,7 @@ export default function HelperAuthCallbackClient() {
                                 boxShadow: "0 14px 30px rgba(18,18,18,0.12)",
                             }}
                         >
-                            直接進入
+                            {t("hAuth.goDirect")}
                         </a>
                     </div>
 
@@ -223,10 +230,8 @@ export default function HelperAuthCallbackClient() {
                             fontSize: 13,
                         }}
                     >
-                        <div style={{ fontWeight: 1100, color: "rgba(18,18,18,0.78)" }}>提醒</div>
-                        <div style={{ marginTop: 6 }}>
-                            登入完成後，你仍然需要僱主提供嘅「邀請連結」先會正式加入家庭。
-                        </div>
+                        <div style={{ fontWeight: 1100, color: "rgba(18,18,18,0.78)" }}>{t("common.reminder")}</div>
+                        <div style={{ marginTop: 6 }}>{t("hAuth.reminderText")}</div>
                     </div>
                 </div>
             </main>

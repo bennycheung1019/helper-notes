@@ -17,10 +17,13 @@ import Button from "@/components/ui/Button";
 import GoogleButton from "@/components/auth/GoogleButton";
 import styles from "@/components/auth/auth.module.css";
 
+import { useI18n } from "@/components/i18n/LangProvider";
+
 type Status = "idle" | "sending" | "sent" | "error";
 
 export default function EmployerLoginPage() {
     const router = useRouter();
+    const { t } = useI18n();
 
     const [email, setEmail] = useState("");
     const [status, setStatus] = useState<Status>("idle");
@@ -36,7 +39,7 @@ export default function EmployerLoginPage() {
         setErrorMsg("");
         const trimmed = email.trim();
         if (!trimmed) {
-            setErrorMsg("請輸入電郵地址");
+            setErrorMsg(t("login.emailRequired"));
             return;
         }
 
@@ -55,7 +58,7 @@ export default function EmployerLoginPage() {
         } catch (err) {
             console.error(err);
             setStatus("error");
-            setErrorMsg("發送失敗，請稍後再試。");
+            setErrorMsg(t("login.sendFail"));
         }
     }
 
@@ -77,29 +80,35 @@ export default function EmployerLoginPage() {
             router.replace("/e/overview");
         } catch (e) {
             console.error(e);
-            setErrorMsg("Google 登入失敗，請再試。");
+            setErrorMsg(t("login.googleFail"));
         } finally {
             setBusyGoogle(false);
         }
     }
 
     return (
-        <AuthLayout title="僱主登入" subtitle="用電郵連結或 Google 快速登入">
+        <AuthLayout
+            title={t("login.employer.title")}
+            subtitle={t("login.employer.subtitle")}
+        >
             {errorMsg ? <div className={styles.error}>{errorMsg}</div> : null}
 
             {/* Google */}
-            <GoogleButton onClick={onGoogleLogin} disabled={busyGoogle || status === "sending"} />
+            <GoogleButton
+                onClick={onGoogleLogin}
+                disabled={busyGoogle || status === "sending"}
+            />
 
-            <div className={styles.divider}>或</div>
+            <div className={styles.divider}>{t("common.or")}</div>
 
             {/* Email */}
             <div className={styles.field}>
-                <div className={styles.label}>電郵地址</div>
+                <div className={styles.label}>{t("login.emailLabel")}</div>
                 <input
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     inputMode="email"
-                    placeholder="you@example.com"
+                    placeholder={t("login.emailPlaceholder")}
                     className={styles.input}
                     disabled={status === "sending" || busyGoogle}
                 />
@@ -111,13 +120,15 @@ export default function EmployerLoginPage() {
                 onClick={onSendLink}
                 disabled={status === "sending" || busyGoogle}
             >
-                {status === "sending" ? "發送中…" : "發送登入連結"}
+                {status === "sending"
+                    ? t("login.sending")
+                    : t("login.sendLink")}
             </Button>
 
             {status === "sent" ? (
                 <div className={styles.noteBox}>
-                    <div className={styles.noteTitle}>已寄出 ✅</div>
-                    <div className={styles.noteText}>請到你嘅電郵收件匣，點擊登入連結完成登入。</div>
+                    <div className={styles.noteTitle}>{t("login.sentTitle")}</div>
+                    <div className={styles.noteText}>{t("login.sentText")}</div>
                 </div>
             ) : null}
         </AuthLayout>

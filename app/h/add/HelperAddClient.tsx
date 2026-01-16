@@ -8,6 +8,7 @@ import { auth, db, storage } from "@/lib/firebase";
 import { syncAuthUid } from "@/lib/localAuth";
 import { collection, doc, getDoc, serverTimestamp, runTransaction } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 type ReceiptImage = {
     url: string;
@@ -104,6 +105,16 @@ function parseJoinTokenFromPath(path: string) {
     return m?.[1] || null;
 }
 
+// i18n helper: 如果你未補 key，t() 可能會原樣返回 key，咁就用 fallback
+function makeTr(t: (k: string) => string) {
+    return (key: string, fallback: string) => {
+        const v = t(key);
+        if (!v) return fallback;
+        if (v === key) return fallback;
+        return v;
+    };
+}
+
 /**
  * app/h/add/HelperAddClient.tsx
  * Client-only page body for /h/add.
@@ -111,12 +122,15 @@ function parseJoinTokenFromPath(path: string) {
 export default function HelperAddClient() {
     const router = useRouter();
     const sp = useSearchParams();
+    const { t } = useI18n();
+    const tr = useMemo(() => makeTr(t), [t]);
 
     const [householdId, setHouseholdId] = useState<string | null>(null);
 
     // form
     const [amountStr, setAmountStr] = useState<string>("");
-    const [category, setCategory] = useState<string>("買餸");
+    // ✅ 用 category key，顯示時用 i18n。唔會影響你 layout。
+    const [category, setCategory] = useState<string>("food");
     const [note, setNote] = useState<string>("");
 
     // images
@@ -125,7 +139,7 @@ export default function HelperAddClient() {
     const [busy, setBusy] = useState(false);
 
     // helper label
-    const [helperLabel, setHelperLabel] = useState<string>("姐姐");
+    const [helperLabel, setHelperLabel] = useState<string>(tr("common.helper", "姐姐"));
 
     // toast
     const [toast, setToast] = useState<{ text: string; tone: "success" | "error" } | null>(null);
@@ -134,7 +148,8 @@ export default function HelperAddClient() {
     const amountCents = useMemo(() => centsFromHKDString(amountStr), [amountStr]);
     const amountHKDPreview = useMemo(() => (amountCents > 0 ? hkdFromCents(amountCents) : "0.00"), [amountCents]);
 
-    const categories = useMemo(() => ["買餸", "日用品", "交通", "其他"], []);
+    // ✅ categories key list（UI pill 仍然同一排）
+    const categories = useMemo(() => ["food", "daily", "transport", "other"], []);
 
     function showToast(text: string, tone: "success" | "error" = "success") {
         setToast({ text, tone });
@@ -150,13 +165,13 @@ export default function HelperAddClient() {
 
     // ✅ fallback: 如果有 token query，就直接帶去 join
     useEffect(() => {
-        const t = sp.get("token");
-        if (t) {
+        const tkn = sp.get("token");
+        if (tkn) {
             try {
-                window.localStorage.setItem("helperJoinToken", t);
-                window.localStorage.setItem("helperJoinNext", `/join/${t}`);
+                window.localStorage.setItem("helperJoinToken", tkn);
+                window.localStorage.setItem("helperJoinNext", `/join/${tkn}`);
             } catch { }
-            router.replace(`/join/${t}`);
+            router.replace(`/join/${tkn}`);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sp]);
@@ -182,13 +197,13 @@ export default function HelperAddClient() {
                 const finalToken = tokenFromNext || token || null;
 
                 if (finalToken) {
-                    showToast("完成登入，正幫你加入家庭…", "success");
+                    showToast(tr("hAdd.toast.joiningAfterLogin", "完成登入，正幫你加入家庭…"), "success");
                     router.replace(`/join/${finalToken}`);
                     return;
                 }
 
                 setHouseholdId(null);
-                showToast("未綁定家庭：請用僱主邀請連結加入一次", "error");
+                showToast(tr("hAdd.toast.noHousehold", "未綁定家庭：請用僱主邀請連結加入一次"), "error");
                 return;
             }
 
@@ -196,15 +211,16 @@ export default function HelperAddClient() {
 
             try {
                 const msnap = await getDoc(doc(db, "households", hid, "members", user.uid));
-                const label = msnap.exists() ? ((msnap.data() as any)?.label || "姐姐") : "姐姐";
-                setHelperLabel(String(label || "姐姐"));
+                const fallbackLabel = tr("common.helper", "姐姐");
+                const label = msnap.exists() ? ((msnap.data() as any)?.label || fallbackLabel) : fallbackLabel;
+                setHelperLabel(String(label || fallbackLabel));
             } catch {
-                setHelperLabel("姐姐");
+                setHelperLabel(tr("common.helper", "姐姐"));
             }
         });
 
         return () => unsub();
-    }, [router]);
+    }, [router, tr]);
 
     async function onPickFiles(files: FileList | null) {
         if (!files || files.length === 0) return;
@@ -222,7 +238,7 @@ export default function HelperAddClient() {
             for (const f of picked) {
                 if (!f.type.startsWith("image/")) continue;
                 if (f.size > 8 * 1024 * 1024) {
-                    showToast("有相片太大（>8MB），已略過", "error");
+                    showToast(tr("hAdd.toast.imageTooLarge", "有相片太大（>8MB），已略過"), "error");
                     continue;
                 }
 
@@ -237,10 +253,10 @@ export default function HelperAddClient() {
             }
 
             setImages((prev) => [...uploaded, ...prev].slice(0, 12));
-            if (uploaded.length > 0) showToast("相片已上載 ✅", "success");
+            if (uploaded.length > 0) showToast(tr("hAdd.toast.uploaded", "相片已上載 ✅"), "success");
         } catch (e) {
             console.error(e);
-            showToast("上載失敗，請再試", "error");
+            showToast(tr("hAdd.toast.uploadFail", "上載失敗，請再試"), "error");
         } finally {
             setUploading(false);
         }
@@ -263,7 +279,7 @@ export default function HelperAddClient() {
         if (!householdId || !auth.currentUser) return;
 
         if (amountCents <= 0) {
-            showToast("請輸入正確金額", "error");
+            showToast(tr("hAdd.toast.invalidAmount", "請輸入正確金額"), "error");
             return;
         }
 
@@ -273,10 +289,11 @@ export default function HelperAddClient() {
             const uid = auth.currentUser.uid;
 
             // label from member doc (fresh read)
-            let label = helperLabel || "姐姐";
+            let label = helperLabel || tr("common.helper", "姐姐");
             try {
                 const msnap = await getDoc(doc(db, "households", householdId, "members", uid));
-                label = msnap.exists() ? ((msnap.data() as any)?.label || "姐姐") : "姐姐";
+                const fallbackLabel = tr("common.helper", "姐姐");
+                label = msnap.exists() ? ((msnap.data() as any)?.label || fallbackLabel) : fallbackLabel;
             } catch { }
 
             const householdRef = doc(db, "households", householdId);
@@ -291,12 +308,13 @@ export default function HelperAddClient() {
 
                 tx.set(recordRef, {
                     amountCents,
-                    category: (category || "其他").trim() || "其他",
+                    // ✅ 存 key，之後 employer/helper 端都可以按語言顯示
+                    category: (category || "other").trim() || "other",
                     note: (note || "").trim(),
                     status: "submitted",
                     createdAt: serverTimestamp(),
                     createdByUserId: uid,
-                    createdByLabel: String(label || "姐姐"),
+                    createdByLabel: String(label || tr("common.helper", "姐姐")),
                     receiptImages: images.map((x) => ({
                         url: x.url,
                         path: x.path || null,
@@ -312,16 +330,18 @@ export default function HelperAddClient() {
                 return updatedCashCents;
             });
 
-            // reset
+            // reset（保持你原本 reset 行為）
             setAmountStr("");
-            setCategory("買餸");
+            setCategory("food");
             setNote("");
             setImages([]);
 
-            showToast(`已提交 ✅（手上現金：HK$ ${hkdFromCents(nextCashCents)}）`, "success");
+            // ✅ 你 i18n 無插值參數，就用 replace
+            const templ = tr("hAdd.toast.submittedWithCash", "已提交 ✅（手上現金：HK$ {cash}）");
+            showToast(templ.replace("{cash}", hkdFromCents(nextCashCents)), "success");
         } catch (e) {
             console.error(e);
-            showToast("提交失敗（可能係 Firestore rules / 權限）", "error");
+            showToast(tr("hAdd.toast.submitFail", "提交失敗（可能係 Firestore rules / 權限）"), "error");
         } finally {
             setBusy(false);
         }
@@ -332,9 +352,11 @@ export default function HelperAddClient() {
             <main style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
                     <div>
-                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950, color: "var(--text)" }}>新增</h1>
+                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950, color: "var(--text)" }}>
+                            {tr("hAdd.title", "新增")}
+                        </h1>
                         <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>
-                            提交者：<b style={{ color: "var(--text)" }}>{helperLabel}</b>
+                            {tr("hAdd.submitter", "提交者")}：<b style={{ color: "var(--text)" }}>{helperLabel}</b>
                         </div>
                     </div>
                 </div>
@@ -350,7 +372,9 @@ export default function HelperAddClient() {
                     }}
                 >
                     <div>
-                        <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>金額（HK$）</div>
+                        <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>
+                            {tr("hAdd.amount", "金額（HK$）")}
+                        </div>
 
                         <div
                             style={{
@@ -363,7 +387,7 @@ export default function HelperAddClient() {
                         >
                             <input
                                 inputMode="decimal"
-                                placeholder="例如 125.50"
+                                placeholder={tr("hAdd.amountPlaceholder", "例如 125.50")}
                                 value={amountStr}
                                 onChange={(e) => setAmountStr(e.target.value)}
                                 style={{
@@ -379,29 +403,37 @@ export default function HelperAddClient() {
                             />
 
                             <div style={{ minWidth: 110, textAlign: "right" }}>
-                                <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 900 }}>預覽</div>
-                                <div style={{ fontSize: 20, fontWeight: 950, color: "var(--text)" }}>HK$ {amountHKDPreview}</div>
+                                <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 900 }}>
+                                    {tr("hAdd.preview", "預覽")}
+                                </div>
+                                <div style={{ fontSize: 20, fontWeight: 950, color: "var(--text)" }}>
+                                    HK$ {amountHKDPreview}
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     <div style={{ marginTop: 14 }}>
-                        <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>分類</div>
+                        <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>
+                            {tr("hAdd.category", "分類")}
+                        </div>
                         <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
                             {categories.map((c) => (
                                 <Pill key={c} active={category === c} onClick={() => setCategory(c)}>
-                                    {c}
+                                    {tr(`category.${c}`, c)}
                                 </Pill>
                             ))}
                         </div>
                     </div>
 
                     <div style={{ marginTop: 14 }}>
-                        <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>備註（可選）</div>
+                        <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>
+                            {tr("hAdd.note", "備註（可選）")}
+                        </div>
                         <textarea
                             value={note}
                             onChange={(e) => setNote(e.target.value)}
-                            placeholder="例如：買米、牛奶、紙巾…"
+                            placeholder={tr("hAdd.notePlaceholder", "例如：買米、牛奶、紙巾…")}
                             style={{
                                 width: "100%",
                                 marginTop: 8,
@@ -419,7 +451,9 @@ export default function HelperAddClient() {
                     </div>
 
                     <div style={{ marginTop: 14 }}>
-                        <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>收據相片（可選）</div>
+                        <div style={{ fontSize: 12, fontWeight: 950, color: "var(--text)" }}>
+                            {tr("hAdd.receipts", "收據相片（可選）")}
+                        </div>
 
                         <label
                             style={{
@@ -436,7 +470,9 @@ export default function HelperAddClient() {
                                 boxShadow: "0 2px 10px rgba(15, 23, 42, 0.06)",
                             }}
                         >
-                            {uploading ? "上載中…" : "＋ 選擇相片（可多張）"}
+                            {uploading
+                                ? tr("hAdd.uploading", "上載中…")
+                                : tr("hAdd.pickPhotos", "＋ 選擇相片（可多張）")}
                             <input
                                 type="file"
                                 accept="image/*"
@@ -482,7 +518,7 @@ export default function HelperAddClient() {
                                                 color: "#0f172a",
                                             }}
                                         >
-                                            刪除
+                                            {tr("common.delete", "刪除")}
                                         </button>
                                     </div>
                                 ))}
@@ -507,11 +543,17 @@ export default function HelperAddClient() {
                             boxShadow: busy || uploading ? "none" : "0 14px 34px rgba(15, 23, 42, 0.16)",
                         }}
                     >
-                        {busy ? "提交中…" : uploading ? "相片上載中…" : "提交記錄"}
+                        {busy
+                            ? tr("hAdd.submitting", "提交中…")
+                            : uploading
+                                ? tr("hAdd.uploadingPhotos", "相片上載中…")
+                                : tr("hAdd.submit", "提交記錄")}
                     </button>
 
                     {!householdId ? (
-                        <div style={{ marginTop: 12, color: "crimson", fontWeight: 950 }}>未找到家庭資料。請用僱主邀請連結加入一次。</div>
+                        <div style={{ marginTop: 12, color: "crimson", fontWeight: 950 }}>
+                            {tr("hAdd.noHouseholdInline", "未找到家庭資料。請用僱主邀請連結加入一次。")}
+                        </div>
                     ) : null}
                 </div>
             </main>

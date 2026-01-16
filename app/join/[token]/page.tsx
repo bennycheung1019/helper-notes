@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 type InviteDoc = {
     householdId: string;
@@ -24,8 +25,9 @@ export default function JoinByTokenPage({
 }) {
     const router = useRouter();
     const { token } = React.use(params);
+    const { t } = useI18n();
 
-    const [msg, setMsg] = useState("準備加入中…");
+    const [msg, setMsg] = useState(t("join.preparing"));
     const [busy, setBusy] = useState(false);
 
     useEffect(() => {
@@ -52,35 +54,35 @@ export default function JoinByTokenPage({
         setBusy(true);
 
         try {
-            setMsg("驗證邀請連結…");
+            setMsg(t("join.verifying"));
 
             const inviteRef = doc(db, "invites", token);
             const inviteSnap = await getDoc(inviteRef);
 
             if (!inviteSnap.exists()) {
-                setMsg("呢條邀請連結無效或已失效。");
+                setMsg(t("join.invalidOrExpired"));
                 return;
             }
 
             const inv = inviteSnap.data() as InviteDoc;
 
             if (inv.revokedAt) {
-                setMsg("呢條邀請連結已被取消。");
+                setMsg(t("join.revoked"));
                 return;
             }
             if (inv.usedAt) {
-                setMsg("呢條邀請連結已用過（一次性）。請叫僱主再生成一條。");
+                setMsg(t("join.used"));
                 return;
             }
             if (inv.expiresAt?.toDate && new Date() > inv.expiresAt.toDate()) {
-                setMsg("呢條邀請連結已過期。請叫僱主再生成一條。");
+                setMsg(t("join.expired"));
                 return;
             }
 
             const hid = inv.householdId;
             const role = (inv.roleToJoin || "helper") as "helper" | "employer";
 
-            setMsg("加入家庭中…");
+            setMsg(t("join.joining"));
 
             // ✅ 一次 batch commit（members + invite usedAt）
             // ✅ members 必須帶 inviteToken，先符合 rules.validInviteForJoin()
@@ -91,7 +93,7 @@ export default function JoinByTokenPage({
                 memberRef,
                 {
                     role,
-                    label: role === "helper" ? "姐姐" : "僱主",
+                    label: role === "helper" ? t("common.helper") : t("common.employer"),
                     inviteToken: token, // ✅ 關鍵：一定要有
                     createdAt: serverTimestamp(),
                 },
@@ -109,17 +111,18 @@ export default function JoinByTokenPage({
             if (role === "helper") {
                 window.localStorage.setItem("helperHouseholdId", hid);
                 cleanupJoinCache();
-                setMsg("加入成功 ✅ 轉到新增頁…");
+                setMsg(t("join.successToAdd"));
                 router.replace("/h/add");
             } else {
                 window.localStorage.setItem("defaultHouseholdId", hid);
                 cleanupJoinCache();
-                setMsg("加入成功 ✅ 轉到總覽…");
+                setMsg(t("join.successToOverview"));
                 router.replace("/e/overview");
             }
         } catch (e: any) {
             console.error(e);
-            setMsg(`加入失敗（${e?.code || "unknown"}）：多數係 rules / invite 已被用 / 欄位唔符合`);
+            const code = String(e?.code || "unknown");
+            setMsg(t("join.failWithCode").replace("{code}", code));
         } finally {
             setBusy(false);
         }
@@ -144,13 +147,13 @@ export default function JoinByTokenPage({
                 }}
             >
                 <div style={{ fontWeight: 950, fontSize: 16, color: "var(--text)" }}>
-                    加入家庭
+                    {t("join.title")}
                 </div>
                 <div style={{ marginTop: 8, color: "var(--muted)", fontWeight: 800 }}>
                     {msg}
                 </div>
                 <div style={{ marginTop: 12, fontSize: 12, color: "var(--muted)" }}>
-                    Token：{token.slice(0, 8)}…
+                    {t("join.token")}：{token.slice(0, 8)}…
                 </div>
             </div>
         </main>

@@ -1,8 +1,9 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import InstallPromptBanner from "@/components/pwa/InstallPromptBanner";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 export type Role = "helper" | "employer";
 
@@ -13,23 +14,33 @@ type Props = {
     showHeader?: boolean;
 };
 
-export function AppShell({ role, children /* title, showHeader */ }: Props) {
+export function AppShell({ role, children }: Props) {
     const pathname = usePathname();
     const router = useRouter();
+    const { t, lang } = useI18n();
 
-    const tabs =
-        role === "helper"
+    // ✅ keep <html lang="..."> aligned (no UI button here)
+    useEffect(() => {
+        try {
+            document.documentElement.lang = lang;
+        } catch { }
+    }, [lang]);
+
+    // ✅ memo tabs to avoid re-create every render
+    const tabs = useMemo(() => {
+        return role === "helper"
             ? [
-                { key: "add", label: "新增", href: "/h/add" },
-                { key: "records", label: "記錄", href: "/h/records" },
-                { key: "settings", label: "設定", href: "/h/settings" },
+                { key: "add", label: t("nav.add"), href: "/h/add" },
+                { key: "records", label: t("nav.records"), href: "/h/records" },
+                { key: "settings", label: t("nav.settings"), href: "/h/settings" },
             ]
             : [
-                { key: "overview", label: "總覽", href: "/e/overview" },
-                { key: "records", label: "記錄", href: "/e/records" },
-                { key: "helpers", label: "姐姐", href: "/e/helpers" },
-                { key: "settings", label: "設定", href: "/e/settings" },
+                { key: "overview", label: t("nav.overview"), href: "/e/overview" },
+                { key: "records", label: t("nav.records"), href: "/e/records" },
+                { key: "helpers", label: t("nav.helpers"), href: "/e/helpers" },
+                { key: "settings", label: t("nav.settings"), href: "/e/settings" },
             ];
+    }, [role, t]);
 
     const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
@@ -56,12 +67,15 @@ export function AppShell({ role, children /* title, showHeader */ }: Props) {
                     zIndex: 50,
                 }}
             >
-                {tabs.map((t) => {
-                    const active = isActive(t.href);
+                {tabs.map((tab) => {
+                    const active = isActive(tab.href);
+
                     return (
                         <button
-                            key={t.key}
-                            onClick={() => router.push(t.href)}
+                            key={tab.key}
+                            onClick={() => router.push(tab.href)}
+                            type="button"
+                            aria-current={active ? "page" : undefined}
                             style={{
                                 border: "none",
                                 background: "transparent",
@@ -74,9 +88,11 @@ export function AppShell({ role, children /* title, showHeader */ }: Props) {
                                 gap: 6,
                                 color: active ? "var(--text)" : "var(--muted)",
                                 fontWeight: 900,
+                                WebkitTapHighlightColor: "transparent",
                             }}
                         >
                             <span
+                                aria-hidden="true"
                                 style={{
                                     width: 26,
                                     height: 4,
@@ -84,7 +100,7 @@ export function AppShell({ role, children /* title, showHeader */ }: Props) {
                                     background: active ? "#2563EB" : "transparent",
                                 }}
                             />
-                            <span style={{ fontSize: 13 }}>{t.label}</span>
+                            <span style={{ fontSize: 13 }}>{tab.label}</span>
                         </button>
                     );
                 })}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./installPromptBanner.module.css";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 export type Role = "helper" | "employer";
 
@@ -44,6 +45,8 @@ function key(role: Role, suffix: string) {
 const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default function InstallPromptBanner({ role }: Props) {
+    const { t } = useI18n();
+
     const [show, setShow] = useState(false);
     const [canInstall, setCanInstall] = useState(false);
     const [isIos, setIsIos] = useState(false);
@@ -52,12 +55,12 @@ export default function InstallPromptBanner({ role }: Props) {
 
     const bipRef = useRef<BeforeInstallPromptEvent | null>(null);
 
-    const roleLabel = role === "employer" ? "僱主" : "姐姐";
+    const roleLabel = role === "employer" ? t("role.employer") : t("role.helper");
 
     const desc = useMemo(() => {
-        if (isIos) return "Safari 下方「分享」→「加入主畫面」。";
-        return "安裝後一撳就開，唔怕搵唔返。";
-    }, [isIos]);
+        if (isIos) return t("pwa.desc.ios");
+        return t("pwa.desc.default");
+    }, [isIos, t]);
 
     function openToast(text: string) {
         setToast({ open: true, text });
@@ -67,9 +70,9 @@ export default function InstallPromptBanner({ role }: Props) {
     function shouldSnoozeHide() {
         try {
             const v = window.localStorage.getItem(key(role, "dismissedAt"));
-            const t = v ? Number(v) : 0;
-            if (!t) return false;
-            return nowMs() - t < SNOOZE_MS;
+            const tt = v ? Number(v) : 0;
+            if (!tt) return false;
+            return nowMs() - tt < SNOOZE_MS;
         } catch {
             return false;
         }
@@ -110,7 +113,7 @@ export default function InstallPromptBanner({ role }: Props) {
         function onAppInstalled() {
             // 安裝完成
             setShow(false);
-            openToast("已加入主畫面 ✅");
+            openToast(t("pwa.toast.installed"));
             // 清走 snooze（下次唔會再彈）
             try {
                 window.localStorage.removeItem(key(role, "dismissedAt"));
@@ -131,19 +134,19 @@ export default function InstallPromptBanner({ role }: Props) {
             window.removeEventListener("appinstalled", onAppInstalled);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [role]);
+    }, [role, t]);
 
     async function onInstall() {
         // iOS：無法 programmatically prompt，只係提示
         if (isIOS()) {
-            openToast("跟住指示加入主畫面 ✅");
+            openToast(t("pwa.toast.followSteps"));
             return;
         }
 
         const ev = bipRef.current;
         if (!ev) {
             // 某啲 browser/情況唔會俾 prompt
-            openToast("暫時未支援安裝");
+            openToast(t("pwa.toast.notSupported"));
             return;
         }
 
@@ -187,6 +190,12 @@ export default function InstallPromptBanner({ role }: Props) {
         ) : null;
     }
 
+    const primaryLabel = isIos
+        ? t("pwa.btn.iosGuide")
+        : canInstall
+            ? t("pwa.btn.install")
+            : t("pwa.btn.addToHome");
+
     return (
         <>
             {/* Toast */}
@@ -197,7 +206,7 @@ export default function InstallPromptBanner({ role }: Props) {
             ) : null}
 
             <div className={styles.wrap} data-role={role}>
-                <div className={styles.card} role="region" aria-label="Install app prompt">
+                <div className={styles.card} role="region" aria-label={t("pwa.aria.installPrompt")}>
                     <div className={styles.left}>
                         <div className={styles.icon} aria-hidden="true">
                             <span className={styles.iconMark}>＋</span>
@@ -206,22 +215,22 @@ export default function InstallPromptBanner({ role }: Props) {
 
                     <div className={styles.mid}>
                         <div className={styles.title}>
-                            加到主畫面（{roleLabel}）
+                            {t("pwa.title")}（{roleLabel}）
                         </div>
                         <div className={styles.desc}>{desc}</div>
                     </div>
 
                     <div className={styles.right}>
-                        <button className={styles.btnClose} onClick={onClose} aria-label="Close">
+                        <button className={styles.btnClose} onClick={onClose} aria-label={t("common.close")}>
                             ✕
                         </button>
 
                         <div className={styles.actions}>
                             <button className={styles.btnPrimary} onClick={onInstall}>
-                                {isIos ? "睇指示" : canInstall ? "安裝" : "加入主畫面"}
+                                {primaryLabel}
                             </button>
                             <button className={styles.btnSecondary} onClick={onLater}>
-                                7 日後提醒
+                                {t("pwa.btn.remind7d")}
                             </button>
                         </div>
                     </div>

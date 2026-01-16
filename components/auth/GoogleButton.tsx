@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "./auth.module.css";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 export default function GoogleButton({
     onClick,
@@ -9,6 +10,8 @@ export default function GoogleButton({
     onClick: () => void;
     disabled?: boolean;
 }) {
+    const { t } = useI18n();
+
     return (
         <button
             type="button"
@@ -27,7 +30,9 @@ export default function GoogleButton({
                     </svg>
                 </div>
 
-                <span className={styles.gsiText}>用 Google 登入</span>
+                <span className={styles.gsiText}>
+                    {t("auth.googleLogin")}
+                </span>
             </div>
         </button>
     );

@@ -19,6 +19,7 @@ import {
     updateDoc,
 } from "firebase/firestore";
 import { RecordCard } from "@/components/records/RecordCard";
+import { useI18n } from "@/components/i18n/LangProvider";
 
 type ReceiptImage = { url: string; path?: string; uploadedAtMs?: number };
 
@@ -45,31 +46,41 @@ function safeText(s: unknown) {
     return String(s ?? "").trim();
 }
 
-function formatNumber(n: number) {
-    return (n || 0).toLocaleString("en-HK");
+function formatNumber(n: number, locale: string) {
+    return (n || 0).toLocaleString(locale);
 }
 
-function centsToHKD(cents: number) {
+function centsToMoney(cents: number, locale: string) {
     const v = (cents || 0) / 100;
-    return v.toLocaleString("en-HK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return v.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function localeFromLang(lang: string) {
+    // 你要更精準都得：id-ID / zh-HK / en-HK
+    if (lang === "id") return "id-ID";
+    if (lang === "en") return "en-HK";
+    return "zh-HK";
 }
 
 /** ✅ Ads carousel (3 slides, auto every 5s) */
-function AdsCarousel() {
+function AdsCarousel({ t }: { t: (k: string) => string }) {
     const ads = [
         {
-            title: "優惠位 1",
-            desc: "之後可以放合作優惠／贊助",
+            title: t("overview.ads.1.title"),
+            desc: t("overview.ads.1.desc"),
+            cta: t("overview.ads.cta"),
             bg: "linear-gradient(115deg, rgba(14,165,233,0.14), rgba(148,163,184,0.20))",
         },
         {
-            title: "優惠位 2",
-            desc: "例如：記帳服務／家務用品折扣",
+            title: t("overview.ads.2.title"),
+            desc: t("overview.ads.2.desc"),
+            cta: t("overview.ads.cta"),
             bg: "linear-gradient(115deg, rgba(99,102,241,0.14), rgba(148,163,184,0.20))",
         },
         {
-            title: "優惠位 3",
-            desc: "例如：保險／外傭服務推廣",
+            title: t("overview.ads.3.title"),
+            desc: t("overview.ads.3.desc"),
+            cta: t("overview.ads.cta"),
             bg: "linear-gradient(115deg, rgba(16,185,129,0.14), rgba(148,163,184,0.20))",
         },
     ];
@@ -77,8 +88,8 @@ function AdsCarousel() {
     const [idx, setIdx] = useState(0);
 
     useEffect(() => {
-        const t = window.setInterval(() => setIdx((p) => (p + 1) % ads.length), 5000);
-        return () => window.clearInterval(t);
+        const timer = window.setInterval(() => setIdx((p) => (p + 1) % ads.length), 5000);
+        return () => window.clearInterval(timer);
     }, [ads.length]);
 
     return (
@@ -133,7 +144,7 @@ function AdsCarousel() {
                                 color: "var(--text)",
                             }}
                         >
-                            查看 →
+                            {a.cta}
                         </div>
                     </div>
                 ))}
@@ -153,7 +164,7 @@ function AdsCarousel() {
                         key={i}
                         type="button"
                         onClick={() => setIdx(i)}
-                        aria-label={`Go to ad ${i + 1}`}
+                        aria-label={t("overview.ads.dotAria").replace("{n}", String(i + 1))}
                         style={{
                             width: 8,
                             height: 8,
@@ -169,7 +180,7 @@ function AdsCarousel() {
     );
 }
 
-function LoadingCard({ label = "載入中…" }: { label?: string }) {
+function LoadingCard({ label }: { label: string }) {
     return (
         <div
             style={{
@@ -216,10 +227,9 @@ function LoadingCard({ label = "載入中…" }: { label?: string }) {
 }
 
 export default function EmployerOverviewPage() {
-    // ✅ NOTE FOR FUTURE ME:
-    // Styling should be moved/managed in `app/landing.module.css` (avoid huge inline style blocks here).
-
     const router = useRouter();
+    const { t, lang } = useI18n();
+    const locale = localeFromLang(lang);
 
     // ✅ booting：避免 login 後閃一下「未建立家庭」
     const [booting, setBooting] = useState(true);
@@ -234,7 +244,7 @@ export default function EmployerOverviewPage() {
     const [msg, setMsg] = useState<string>("");
 
     // ✅ new household UX
-    const [newName, setNewName] = useState("我屋企");
+    const [newName, setNewName] = useState(t("settings.household.defaultName") || "我屋企");
     const [busyCreate, setBusyCreate] = useState(false);
 
     // ✅ 手上現金（cash）
@@ -249,14 +259,14 @@ export default function EmployerOverviewPage() {
     async function createHousehold() {
         if (!uid) return;
 
-        const name = safeText(newName) || "我屋企";
+        const name = safeText(newName) || (t("settings.household.defaultName") || "我屋企");
         setBusyCreate(true);
         setMsg("");
 
         const step = (s: string) => setMsg(s);
 
         try {
-            step("建立家庭中…");
+            step(t("overview.create.step.household"));
 
             const hRef = doc(collection(db, "households"));
 
@@ -272,26 +282,26 @@ export default function EmployerOverviewPage() {
                 });
             } catch (e: any) {
                 console.error("FAILED: create household", e);
-                setMsg(`建立家庭失敗（step=household, ${e?.code || "unknown"}）`);
+                setMsg(t("overview.create.fail.household").replace("{code}", e?.code || "unknown"));
                 return;
             }
 
             // 2) create member (bootstrap)
-            step("建立成員中…");
+            step(t("overview.create.step.member"));
             try {
                 await setDoc(doc(db, "households", hRef.id, "members", uid), {
                     role: "employer",
                     createdAt: serverTimestamp(),
-                    label: email ? safeText(email) : "僱主",
+                    label: email ? safeText(email) : t("overview.create.employerLabel"),
                 });
             } catch (e: any) {
                 console.error("FAILED: create member", e);
-                setMsg(`建立家庭失敗（step=member, ${e?.code || "unknown"}）`);
+                setMsg(t("overview.create.fail.member").replace("{code}", e?.code || "unknown"));
                 return;
             }
 
             // 3) write users/{uid}
-            step("寫入用戶設定中…");
+            step(t("overview.create.step.user"));
             try {
                 await setDoc(
                     doc(db, "users", uid),
@@ -300,7 +310,7 @@ export default function EmployerOverviewPage() {
                 );
             } catch (e: any) {
                 console.error("FAILED: write user doc", e);
-                setMsg(`建立家庭失敗（step=user, ${e?.code || "unknown"}）`);
+                setMsg(t("overview.create.fail.user").replace("{code}", e?.code || "unknown"));
                 return;
             }
 
@@ -310,7 +320,7 @@ export default function EmployerOverviewPage() {
             setCashCents(0);
             setCashDraft("0");
 
-            step("建立成功 ✅ 前往邀請…");
+            step(t("overview.create.successGoInvite"));
             router.push("/e/helpers");
         } finally {
             setBusyCreate(false);
@@ -325,7 +335,7 @@ export default function EmployerOverviewPage() {
         const num = Number(raw);
 
         if (!Number.isFinite(num) || num < 0) {
-            setMsg("請輸入有效金額（>= 0）");
+            setMsg(t("overview.cash.invalid"));
             return;
         }
 
@@ -346,7 +356,7 @@ export default function EmployerOverviewPage() {
             setCashEditing(false);
         } catch (e) {
             console.error(e);
-            setMsg("更新『手上現金』失敗（可能係 Firestore rules）。");
+            setMsg(t("overview.cash.updateFail"));
         } finally {
             setBusyCash(false);
         }
@@ -391,7 +401,7 @@ export default function EmployerOverviewPage() {
 
                     const hh: Household = {
                         id: hid,
-                        name: safeText(h?.name) || "我屋企",
+                        name: safeText(h?.name) || (t("settings.household.defaultName") || "我屋企"),
                         currency: "HKD",
                         cashCents: c,
                     };
@@ -408,14 +418,14 @@ export default function EmployerOverviewPage() {
                 console.error(e);
                 setHousehold(null);
                 setBooting(false);
-                setMsg("載入資料失敗（可能係網絡或 Firestore rules）。");
+                setMsg(t("overview.loadFail"));
             }
         });
 
         return () => unsub();
-    }, [router]);
+    }, [router, t]);
 
-    // ✅ NEW: subscribe household live (cashCents will update immediately)
+    // ✅ subscribe household live (cashCents will update immediately)
     useEffect(() => {
         if (!household?.id) return;
 
@@ -428,9 +438,7 @@ export default function EmployerOverviewPage() {
                 const h = snap.data() as any;
                 const c = typeof h?.cashCents === "number" ? h.cashCents : 0;
 
-                setHousehold((prev) =>
-                    prev ? { ...prev, cashCents: c, name: safeText(h?.name) || prev.name } : prev
-                );
+                setHousehold((prev) => (prev ? { ...prev, cashCents: c, name: safeText(h?.name) || prev.name } : prev));
                 setCashCents(c);
 
                 // 如果用戶正喺 edit cash，就唔好蓋過佢輸入
@@ -438,10 +446,10 @@ export default function EmployerOverviewPage() {
             },
             (err) => {
                 console.error(err);
-                setMsg("讀取家庭資料失敗（可能係 Firestore rules）。");
+                setMsg(t("overview.householdSubFail"));
             }
         );
-    }, [household?.id, cashEditing]);
+    }, [household?.id, cashEditing, t]);
 
     // ✅ subscribe records
     useEffect(() => {
@@ -474,10 +482,10 @@ export default function EmployerOverviewPage() {
             },
             (err) => {
                 console.error(err);
-                setMsg("讀取記錄失敗（可能係 Firestore rules）。");
+                setMsg(t("overview.recordsFail"));
             }
         );
-    }, [household?.id]);
+    }, [household?.id, t]);
 
     const pending = useMemo(() => items.filter((x) => x.status === "submitted").slice(0, 5), [items]);
     const flagged = useMemo(() => items.filter((x) => x.status === "flagged").slice(0, 5), [items]);
@@ -506,9 +514,9 @@ export default function EmployerOverviewPage() {
     // ✅ boot loading (避免 flicker)
     if (booting) {
         return (
-            <AppShell role="employer" title="總覽">
+            <AppShell role="employer" title={t("title.employer.overview")}>
                 <main style={{ padding: 16, maxWidth: 560, margin: "0 auto" }}>
-                    <LoadingCard label="正在載入…" />
+                    <LoadingCard label={t("overview.loading")} />
                 </main>
             </AppShell>
         );
@@ -517,7 +525,7 @@ export default function EmployerOverviewPage() {
     // ✅ 新用戶：直接建立家庭（更好 UX）
     if (!household) {
         return (
-            <AppShell role="employer" title="總覽">
+            <AppShell role="employer" title={t("title.employer.overview")}>
                 <main style={{ padding: 16, maxWidth: 560, margin: "0 auto" }}>
                     <div
                         style={{
@@ -543,7 +551,7 @@ export default function EmployerOverviewPage() {
                                 width: "fit-content",
                             }}
                         >
-                            第一次使用
+                            {t("overview.firstTime")}
                         </div>
 
                         <h1
@@ -556,7 +564,7 @@ export default function EmployerOverviewPage() {
                                 color: "var(--text)",
                             }}
                         >
-                            建立家庭
+                            {t("overview.create.title")}
                         </h1>
 
                         <p
@@ -568,15 +576,17 @@ export default function EmployerOverviewPage() {
                                 maxWidth: "52ch",
                             }}
                         >
-                            輸入家庭名稱，建立後就可以邀請姐姐加入。
+                            {t("overview.create.desc")}
                         </p>
 
                         <div style={{ marginTop: 14 }}>
-                            <div style={{ fontWeight: 950, color: "var(--text)", marginBottom: 8 }}>家庭名稱</div>
+                            <div style={{ fontWeight: 950, color: "var(--text)", marginBottom: 8 }}>
+                                {t("settings.household.name")}
+                            </div>
                             <input
                                 value={newName}
                                 onChange={(e) => setNewName(e.target.value)}
-                                placeholder="例如：張生家庭"
+                                placeholder={t("overview.create.placeholder")}
                                 style={{
                                     width: "100%",
                                     padding: 14,
@@ -607,7 +617,7 @@ export default function EmployerOverviewPage() {
                                 boxShadow: "0 14px 30px rgba(18,18,18,0.12)",
                             }}
                         >
-                            {busyCreate ? "建立中…" : "建立並前往邀請"}
+                            {busyCreate ? t("overview.create.busy") : t("overview.create.cta")}
                         </button>
 
                         {msg ? (
@@ -649,7 +659,7 @@ export default function EmployerOverviewPage() {
             };
 
     return (
-        <AppShell role="employer" title="總覽">
+        <AppShell role="employer" title={t("title.employer.overview")}>
             <main style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
                 {/* Header */}
                 <div
@@ -662,7 +672,6 @@ export default function EmployerOverviewPage() {
                     }}
                 >
                     <div style={{ minWidth: 0 }}>
-                        {/* ✅ 只顯示家庭名 */}
                         <h1
                             style={{
                                 margin: 0,
@@ -675,10 +684,11 @@ export default function EmployerOverviewPage() {
                         >
                             {household.name}
                         </h1>
-                        <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>總覽</div>
+                        <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>
+                            {t("nav.overview")}
+                        </div>
                     </div>
 
-                    {/* ✅ 只保留 plan badge */}
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span
                             style={{
@@ -690,7 +700,7 @@ export default function EmployerOverviewPage() {
                                 ...planBadgeStyle,
                             }}
                         >
-                            {plan === "pro" ? "Pro" : "Basic"}
+                            {plan === "pro" ? t("settings.plan.pro") : t("settings.plan.basic")}
                         </span>
                     </div>
                 </div>
@@ -719,9 +729,9 @@ export default function EmployerOverviewPage() {
                         }}
                     >
                         <div>
-                            <div style={{ fontWeight: 1000, color: "var(--text)" }}>手上現金</div>
+                            <div style={{ fontWeight: 1000, color: "var(--text)" }}>{t("overview.cash.title")}</div>
                             <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>
-                                記低姐姐手上仲有幾多錢，方便提醒你幾時要再入錢
+                                {t("overview.cash.desc")}
                             </div>
                         </div>
 
@@ -742,7 +752,7 @@ export default function EmployerOverviewPage() {
                                     cursor: "pointer",
                                 }}
                             >
-                                ✏️ 編輯
+                                {t("overview.cash.edit")}
                             </button>
                         ) : null}
                     </div>
@@ -750,17 +760,19 @@ export default function EmployerOverviewPage() {
                     <div style={{ padding: 14 }}>
                         {!cashEditing ? (
                             <div style={{ fontSize: 22, fontWeight: 1100, color: "var(--text)" }}>
-                                HK$ {centsToHKD(cashCents)}
+                                {t("overview.currencyPrefix")} {centsToMoney(cashCents, locale)}
                             </div>
                         ) : (
                             <div style={{ display: "grid", gap: 10 }}>
-                                <div style={{ fontSize: 12, fontWeight: 950, color: "var(--muted)" }}>更新金額（HK$）</div>
+                                <div style={{ fontSize: 12, fontWeight: 950, color: "var(--muted)" }}>
+                                    {t("overview.cash.inputLabel")}
+                                </div>
 
                                 <input
                                     value={cashDraft}
                                     onChange={(e) => setCashDraft(e.target.value)}
                                     inputMode="decimal"
-                                    placeholder="例如：2000"
+                                    placeholder={t("overview.cash.placeholder")}
                                     style={{
                                         width: "100%",
                                         padding: 14,
@@ -790,7 +802,7 @@ export default function EmployerOverviewPage() {
                                             boxShadow: "0 14px 30px rgba(18,18,18,0.12)",
                                         }}
                                     >
-                                        {busyCash ? "儲存中…" : "儲存"}
+                                        {busyCash ? t("common.saving") : t("common.save")}
                                     </button>
 
                                     <button
@@ -810,7 +822,7 @@ export default function EmployerOverviewPage() {
                                             cursor: "pointer",
                                         }}
                                     >
-                                        取消
+                                        {t("common.cancel")}
                                     </button>
                                 </div>
                             </div>
@@ -819,15 +831,28 @@ export default function EmployerOverviewPage() {
                 </div>
 
                 {/* Stats cards */}
-                <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+                <div
+                    style={{
+                        marginTop: 12,
+                        display: "grid",
+                        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                        gap: 10,
+                    }}
+                >
                     {[
                         {
-                            label: "本月總支出",
-                            value: `HK$ ${stats.monthTotal.toLocaleString("en-HK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                            label: t("overview.stats.month"),
+                            value: `${t("overview.currencyPrefix")} ${stats.monthTotal.toLocaleString(locale, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })}`,
                         },
                         {
-                            label: "今日支出",
-                            value: `HK$ ${stats.todayTotal.toLocaleString("en-HK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                            label: t("overview.stats.today"),
+                            value: `${t("overview.currencyPrefix")} ${stats.todayTotal.toLocaleString(locale, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })}`,
                         },
                     ].map((x) => (
                         <div
@@ -846,7 +871,7 @@ export default function EmployerOverviewPage() {
                     ))}
                 </div>
 
-                <AdsCarousel />
+                <AdsCarousel t={t} />
 
                 {/* Pending */}
                 <div
@@ -872,11 +897,13 @@ export default function EmployerOverviewPage() {
                         }}
                     >
                         <div>
-                            <div style={{ fontWeight: 950, color: "var(--text)" }}>待批</div>
-                            <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>點入記錄詳情處理</div>
+                            <div style={{ fontWeight: 950, color: "var(--text)" }}>{t("overview.pending.title")}</div>
+                            <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>
+                                {t("overview.pending.sub")}
+                            </div>
                         </div>
                         <div
-                            aria-label={`待批數量 ${pending.length}`}
+                            aria-label={t("overview.pending.aria").replace("{n}", String(pending.length))}
                             style={{
                                 minWidth: 34,
                                 height: 28,
@@ -891,13 +918,13 @@ export default function EmployerOverviewPage() {
                                 padding: "0 10px",
                             }}
                         >
-                            {formatNumber(pending.length)}
+                            {formatNumber(pending.length, locale)}
                         </div>
                     </div>
 
                     <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
                         {pending.length === 0 ? (
-                            <div style={{ color: "var(--muted)", fontWeight: 900 }}>暫時冇待批 ✅</div>
+                            <div style={{ color: "var(--muted)", fontWeight: 900 }}>{t("overview.pending.empty")}</div>
                         ) : (
                             pending.map((it) => (
                                 <RecordCard
@@ -941,11 +968,13 @@ export default function EmployerOverviewPage() {
                         }}
                     >
                         <div>
-                            <div style={{ fontWeight: 950, color: "var(--text)" }}>需跟進</div>
-                            <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>點入記錄詳情處理</div>
+                            <div style={{ fontWeight: 950, color: "var(--text)" }}>{t("overview.flagged.title")}</div>
+                            <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>
+                                {t("overview.flagged.sub")}
+                            </div>
                         </div>
                         <div
-                            aria-label={`需跟進數量 ${flagged.length}`}
+                            aria-label={t("overview.flagged.aria").replace("{n}", String(flagged.length))}
                             style={{
                                 minWidth: 34,
                                 height: 28,
@@ -960,13 +989,13 @@ export default function EmployerOverviewPage() {
                                 padding: "0 10px",
                             }}
                         >
-                            {formatNumber(flagged.length)}
+                            {formatNumber(flagged.length, locale)}
                         </div>
                     </div>
 
                     <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
                         {flagged.length === 0 ? (
-                            <div style={{ color: "var(--muted)", fontWeight: 900 }}>暫時冇需跟進 ✅</div>
+                            <div style={{ color: "var(--muted)", fontWeight: 900 }}>{t("overview.flagged.empty")}</div>
                         ) : (
                             flagged.map((it) => (
                                 <RecordCard
@@ -1037,7 +1066,9 @@ export default function EmployerOverviewPage() {
                                 }}
                             >
                                 <div style={{ fontWeight: 950 }}>
-                                    收據（{lightbox.index + 1}/{lightbox.images.length}）
+                                    {t("overview.lightbox.title")
+                                        .replace("{i}", String(lightbox.index + 1))
+                                        .replace("{n}", String(lightbox.images.length))}
                                 </div>
                                 <button
                                     onClick={() => setLightbox(null)}
@@ -1050,7 +1081,7 @@ export default function EmployerOverviewPage() {
                                         cursor: "pointer",
                                     }}
                                 >
-                                    關閉
+                                    {t("common.close")}
                                 </button>
                             </div>
 
@@ -1081,7 +1112,7 @@ export default function EmployerOverviewPage() {
                                                 cursor: "pointer",
                                                 flex: "0 0 auto",
                                             }}
-                                            aria-label={`Open image ${i + 1}`}
+                                            aria-label={t("overview.lightbox.thumbAria").replace("{n}", String(i + 1))}
                                         >
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
                                             <img src={u} alt={`thumb ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />

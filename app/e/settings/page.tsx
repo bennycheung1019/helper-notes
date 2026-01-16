@@ -6,13 +6,11 @@ import { auth, db } from "@/lib/firebase";
 import { syncAuthUid } from "@/lib/localAuth";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-    doc,
-    getDoc,
-    serverTimestamp,
-    updateDoc,
-    setDoc,
-} from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
+
+import { useI18n } from "@/components/i18n/LangProvider";
+import type { Lang } from "@/lib/i18n";
+import { LANG_NAME } from "@/lib/i18n";
 
 type Household = {
     id: string;
@@ -25,7 +23,7 @@ function safeText(s: unknown) {
     return String(s ?? "").trim();
 }
 
-function LoadingCard({ label = "載入中…" }: { label?: string }) {
+function LoadingCard({ label }: { label: string }) {
     return (
         <div
             style={{
@@ -53,13 +51,7 @@ function LoadingCard({ label = "載入中…" }: { label?: string }) {
     );
 }
 
-function Section({
-    title,
-    children,
-}: {
-    title: string;
-    children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
     return (
         <section style={{ marginTop: 14 }}>
             <div
@@ -73,6 +65,7 @@ function Section({
             >
                 {title}
             </div>
+
             <div
                 style={{
                     border: "1px solid var(--border)",
@@ -88,18 +81,48 @@ function Section({
     );
 }
 
+function Divider() {
+    return <div style={{ height: 1, background: "rgba(15,23,42,0.10)", marginLeft: 14 }} />;
+}
+
+function Chevron() {
+    return (
+        <span
+            aria-hidden
+            style={{
+                width: 28,
+                height: 28,
+                borderRadius: 10,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "1px solid rgba(18,18,18,0.12)",
+                background: "rgba(255,255,255,0.75)",
+                color: "rgba(18,18,18,0.75)",
+                fontSize: 14,
+                fontWeight: 1100,
+                lineHeight: 1,
+            }}
+        >
+            ›
+        </span>
+    );
+}
+
 function Row({
     left,
     right,
     onClick,
     danger,
     disabled,
+    hint,
 }: {
     left: React.ReactNode;
     right?: React.ReactNode;
     onClick?: () => void;
     danger?: boolean;
     disabled?: boolean;
+    hint?: string;
 }) {
     const clickable = !!onClick && !disabled;
 
@@ -114,24 +137,39 @@ function Row({
                 background: "transparent",
                 padding: "14px 14px",
                 display: "flex",
-                alignItems: "center",
+                alignItems: "flex-start",
                 justifyContent: "space-between",
                 gap: 12,
                 cursor: clickable ? "pointer" : "default",
                 textAlign: "left",
             }}
         >
-            <div
-                style={{
-                    minWidth: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    color: danger ? "#991B1B" : "var(--text)",
-                    fontWeight: 950,
-                }}
-            >
-                {left}
+            <div style={{ minWidth: 0 }}>
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        color: danger ? "#991B1B" : "var(--text)",
+                        fontWeight: 950,
+                    }}
+                >
+                    {left}
+                </div>
+
+                {hint ? (
+                    <div
+                        style={{
+                            marginTop: 6,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            color: "rgba(18,18,18,0.55)",
+                            lineHeight: 1.5,
+                        }}
+                    >
+                        {hint}
+                    </div>
+                ) : null}
             </div>
 
             {right ? (
@@ -143,32 +181,175 @@ function Row({
                         display: "flex",
                         alignItems: "center",
                         gap: 8,
+                        flexShrink: 0,
                     }}
                 >
                     {right}
                 </div>
             ) : (
-                <div
-                    style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 999,
-                        opacity: 0,
-                    }}
-                />
+                <div style={{ width: 10, height: 10, borderRadius: 999, opacity: 0 }} />
             )}
         </button>
     );
 }
 
-function Divider() {
+function LangPill({ label }: { label: string }) {
     return (
-        <div style={{ height: 1, background: "rgba(15,23,42,0.10)", marginLeft: 14 }} />
+        <span
+            style={{
+                padding: "7px 10px",
+                borderRadius: 999,
+                border: "1px solid rgba(15,23,42,0.12)",
+                background: "rgba(15,23,42,0.06)",
+                color: "var(--text)",
+                fontWeight: 950,
+                fontSize: 12,
+                whiteSpace: "nowrap",
+            }}
+        >
+            {label}
+        </span>
+    );
+}
+
+function LangModal({
+    open,
+    current,
+    onClose,
+    onPick,
+    title,
+    subtitle,
+    closeText,
+    selectedText,
+}: {
+    open: boolean;
+    current: Lang;
+    onClose: () => void;
+    onPick: (l: Lang) => void;
+    title: string;
+    subtitle: string;
+    closeText: string;
+    selectedText: string;
+}) {
+    if (!open) return null;
+
+    const options: Array<{ lang: Lang; title: string; sub: string }> = [
+        { lang: "zh-HK", title: "中文（繁體）", sub: "Traditional Chinese" },
+        { lang: "en", title: "English", sub: "English" },
+        { lang: "id", title: "Bahasa Indonesia", sub: "Indonesian" },
+    ];
+
+    return (
+        <div
+            onClick={onClose}
+            style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 80,
+                background: "rgba(0,0,0,0.45)",
+                display: "flex",
+                alignItems: "flex-end",
+                justifyContent: "center",
+                padding: 14,
+            }}
+        >
+            <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                    width: "min(520px, 100%)",
+                    background: "white",
+                    borderRadius: 18,
+                    overflow: "hidden",
+                    boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
+                    border: "1px solid rgba(15,23,42,0.12)",
+                }}
+            >
+                <div style={{ padding: 14, borderBottom: "1px solid rgba(15,23,42,0.10)" }}>
+                    <div style={{ fontWeight: 1100, color: "#0f172a" }}>{title}</div>
+                    <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "rgba(15,23,42,0.55)" }}>
+                        {subtitle}
+                    </div>
+                </div>
+
+                <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {options.map((o) => {
+                        const active = o.lang === current;
+                        return (
+                            <button
+                                key={o.lang}
+                                type="button"
+                                onClick={() => {
+                                    onPick(o.lang);
+                                    onClose();
+                                }}
+                                style={{
+                                    width: "100%",
+                                    textAlign: "left",
+                                    borderRadius: 14,
+                                    border: active ? "2px solid rgba(37,99,235,0.45)" : "1px solid rgba(15,23,42,0.12)",
+                                    background: active ? "rgba(37,99,235,0.06)" : "rgba(255,255,255,0.95)",
+                                    padding: 12,
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: 12,
+                                }}
+                            >
+                                <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 1000, color: "#0f172a" }}>{o.title}</div>
+                                    <div style={{ marginTop: 4, fontSize: 12, fontWeight: 900, color: "rgba(15,23,42,0.55)" }}>
+                                        {o.sub}
+                                    </div>
+                                </div>
+
+                                {active ? (
+                                    <span
+                                        style={{
+                                            padding: "6px 10px",
+                                            borderRadius: 999,
+                                            background: "rgba(37,99,235,0.12)",
+                                            color: "#1D4ED8",
+                                            fontWeight: 1000,
+                                            fontSize: 12,
+                                            whiteSpace: "nowrap",
+                                        }}
+                                    >
+                                        {selectedText}
+                                    </span>
+                                ) : (
+                                    <Chevron />
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                <div style={{ padding: 12, borderTop: "1px solid rgba(15,23,42,0.10)" }}>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        style={{
+                            width: "100%",
+                            padding: 12,
+                            borderRadius: 14,
+                            border: "1px solid rgba(15,23,42,0.12)",
+                            background: "rgba(255,255,255,0.9)",
+                            fontWeight: 1000,
+                            cursor: "pointer",
+                        }}
+                    >
+                        {closeText}
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 }
 
 export default function EmployerSettingsPage() {
     const router = useRouter();
+    const { t, employerLang, setEmployerLang } = useI18n();
 
     const [booting, setBooting] = useState(true);
 
@@ -183,14 +364,10 @@ export default function EmployerSettingsPage() {
     const [nameDraft, setNameDraft] = useState("");
     const [busySaveName, setBusySaveName] = useState(false);
 
-    // language (future)
-    const [language, setLanguage] = useState<"zh-HK" | "en">("zh-HK");
+    // language modal
+    const [langOpen, setLangOpen] = useState(false);
 
-    // future toggles placeholders
-    const [futurePushEnabled] = useState(false);
-    const [futureExportEnabled] = useState(false);
-
-    const householdName = useMemo(() => household?.name || "未建立", [household?.name]);
+    const householdName = useMemo(() => household?.name || t("settings.household.none"), [household?.name, t]);
 
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, async (user) => {
@@ -239,16 +416,12 @@ export default function EmployerSettingsPage() {
 
                 const hh: Household = {
                     id: hid,
-                    name: safeText(h?.name) || "我屋企",
+                    name: safeText(h?.name) || t("settings.household.defaultName"),
                     currency: "HKD",
                 };
 
                 setHousehold(hh);
                 setNameDraft(hh.name);
-
-                // (optional) load future language setting if you store it later:
-                // setLanguage(u?.language === "en" ? "en" : "zh-HK");
-
                 setBooting(false);
             } catch (e) {
                 console.error(e);
@@ -259,7 +432,7 @@ export default function EmployerSettingsPage() {
         });
 
         return () => unsub();
-    }, [router]);
+    }, [router, t]);
 
     async function onLogout() {
         try {
@@ -287,41 +460,23 @@ export default function EmployerSettingsPage() {
             setEditingName(false);
         } catch (e) {
             console.error(e);
-            // keep editing mode so user can retry
         } finally {
             setBusySaveName(false);
         }
     }
 
-    async function onChangeLanguage(next: "zh-HK" | "en") {
-        setLanguage(next);
-
-        // ✅ future: save to users doc
-        try {
-            if (uid) {
-                await setDoc(
-                    doc(db, "users", uid),
-                    { language: next, updatedAt: serverTimestamp() },
-                    { merge: true }
-                );
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
     if (booting) {
         return (
-            <AppShell role="employer" title="設定">
+            <AppShell role="employer" title={t("title.employer.settings")}>
                 <main style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
-                    <LoadingCard label="正在載入設定…" />
+                    <LoadingCard label={t("settings.loading")} />
                 </main>
             </AppShell>
         );
     }
 
     return (
-        <AppShell role="employer" title="設定">
+        <AppShell role="employer" title={t("title.employer.settings")}>
             <main style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
                 {/* Title */}
                 <div style={{ padding: "4px 4px 10px" }}>
@@ -334,18 +489,18 @@ export default function EmployerSettingsPage() {
                             color: "var(--text)",
                         }}
                     >
-                        設定
+                        {t("title.employer.settings")}
                     </h1>
                 </div>
 
                 {/* Account */}
-                <Section title="帳戶">
+                <Section title={t("settings.section.account")}>
                     <Row
-                        left={<span>登入電郵</span>}
+                        left={<span>{t("settings.account.email")}</span>}
                         right={
                             <span
                                 style={{
-                                    maxWidth: 220,
+                                    maxWidth: 240,
                                     minWidth: 0,
                                     overflow: "hidden",
                                     textOverflow: "ellipsis",
@@ -359,30 +514,27 @@ export default function EmployerSettingsPage() {
                         }
                     />
                     <Divider />
-                    <Row
-                        left={<span>方案</span>}
-                        right={<span>{plan === "pro" ? "Pro" : "Basic"}</span>}
-                    />
+                    <Row left={<span>{t("settings.account.plan")}</span>} right={<span>{plan === "pro" ? "Pro" : "Basic"}</span>} />
                 </Section>
 
                 {/* Household */}
-                <Section title="家庭">
+                <Section title={t("settings.section.household")}>
                     {!household ? (
                         <Row
-                            left={<span>家庭</span>}
-                            right={<span style={{ fontWeight: 950 }}>未建立</span>}
+                            left={<span>{t("settings.household.label")}</span>}
+                            right={<span style={{ fontWeight: 950 }}>{t("settings.household.none")}</span>}
                             onClick={() => router.push("/e/overview")}
                         />
                     ) : (
                         <>
                             {!editingName ? (
                                 <Row
-                                    left={<span>家庭名稱</span>}
+                                    left={<span>{t("settings.household.name")}</span>}
                                     right={
                                         <>
                                             <span
                                                 style={{
-                                                    maxWidth: 200,
+                                                    maxWidth: 220,
                                                     minWidth: 0,
                                                     overflow: "hidden",
                                                     textOverflow: "ellipsis",
@@ -413,18 +565,19 @@ export default function EmployerSettingsPage() {
                                         </>
                                     }
                                     onClick={() => setEditingName(true)}
+                                    hint={t("settings.household.editHint")}
                                 />
                             ) : (
                                 <div style={{ padding: 14 }}>
                                     <div style={{ fontSize: 12, fontWeight: 1000, color: "rgba(18,18,18,0.55)" }}>
-                                        家庭名稱
+                                        {t("settings.household.name")}
                                     </div>
 
                                     <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
                                         <input
                                             value={nameDraft}
                                             onChange={(e) => setNameDraft(e.target.value)}
-                                            placeholder="例如：我屋企"
+                                            placeholder={t("settings.household.placeholder")}
                                             style={{
                                                 flex: 1,
                                                 minWidth: 0,
@@ -437,6 +590,7 @@ export default function EmployerSettingsPage() {
                                                 outline: "none",
                                             }}
                                         />
+
                                         <button
                                             type="button"
                                             onClick={saveHouseholdName}
@@ -452,7 +606,7 @@ export default function EmployerSettingsPage() {
                                                 whiteSpace: "nowrap",
                                             }}
                                         >
-                                            {busySaveName ? "儲存…" : "儲存"}
+                                            {busySaveName ? t("common.saving") : t("common.save")}
                                         </button>
                                     </div>
 
@@ -474,7 +628,7 @@ export default function EmployerSettingsPage() {
                                             cursor: "pointer",
                                         }}
                                     >
-                                        取消
+                                        {t("common.cancel")}
                                     </button>
                                 </div>
                             )}
@@ -482,45 +636,43 @@ export default function EmployerSettingsPage() {
                     )}
                 </Section>
 
-                {/* Language + future */}
-                <Section title="一般">
+                {/* Language (same style as Household section) */}
+                <Section title={t("settings.section.general")}>
                     <Row
-                        left={<span>Language</span>}
-                        right={<span>{language === "zh-HK" ? "繁體中文" : "English"}</span>}
-                        onClick={() => {
-                            // super simple toggle now; later you can replace with a modal picker
-                            onChangeLanguage(language === "zh-HK" ? "en" : "zh-HK");
-                        }}
+                        left={<span>{t("settings.general.language")}</span>}
+                        right={
+                            <>
+                                <LangPill label={LANG_NAME[employerLang] || employerLang} />
+                                <Chevron />
+                            </>
+                        }
+                        onClick={() => setLangOpen(true)}
+                        hint={t("settings.general.languageHint")}
                     />
-                    <Divider />
-
-                    <Row
-                        left={<span>通知（推送）</span>}
-                        right={<span>{futurePushEnabled ? "On" : "Off"}</span>}
-                        disabled
-                    />
-                    <Divider />
-
-                    <Row
-                        left={<span>CSV 匯出</span>}
-                        right={<span>{futureExportEnabled ? "可用" : "未開放"}</span>}
-                        disabled
-                    />
-                    <Divider />
-
-                    <Row left={<span>資料備份</span>} right={<span>未開放</span>} disabled />
-                    <Divider />
-
-                    <Row left={<span>安全性</span>} right={<span>未開放</span>} disabled />
                 </Section>
 
                 {/* Logout */}
                 <Section title=" ">
-                    <Row left={<span style={{ color: "#991B1B" }}>登出</span>} danger onClick={onLogout} />
+                    <Row
+                        left={<span style={{ color: "#991B1B" }}>{t("settings.logout")}</span>}
+                        danger
+                        onClick={onLogout}
+                        hint={t("settings.logoutHint")}
+                    />
                 </Section>
 
-                {/* Small footer spacing */}
                 <div style={{ height: 18 }} />
+
+                <LangModal
+                    open={langOpen}
+                    current={employerLang}
+                    onClose={() => setLangOpen(false)}
+                    onPick={(l) => setEmployerLang(l)}
+                    title={t("settings.langModal.title")}
+                    subtitle={t("settings.langModal.subtitleEmployer")}
+                    closeText={t("common.close")}
+                    selectedText={t("common.selected")}
+                />
             </main>
         </AppShell>
     );
